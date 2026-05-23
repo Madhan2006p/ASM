@@ -5,6 +5,7 @@ from .models import (
     DirectoryResult,
     EmailSecurityResult,
     EndpointResult,
+    MonitoredDomain,
     PortResult,
     SSLResult,
     SubdomainResult,
@@ -175,4 +176,23 @@ class AttackSurfaceScanSerializer(serializers.ModelSerializer):
             "ssl_done",
             "email_done",
             "directories_done",
+        ]
+
+
+class MonitoredDomainSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonitoredDomain
+        fields = [
+            "id",
+            "domain",
+            "org_id",
+            "morning_time",
+            "night_time",
+            "morning_enabled",
+            "night_enabled",
+            "auto_scan_on_add",
+            "last_morning_scan_at",
+            "last_night_scan_at",
+            "created_at",
+            "updated_at",
         ]

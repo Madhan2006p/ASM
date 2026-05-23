@@ -155,9 +155,24 @@ export const checkAuth = async () => {
   }
 };
 
-export const fetchAttackSurface = async (endpoint, orgId, pageUrl = null) => {
+const getActiveScanId = () => {
+  try {
+    return localStorage.getItem("activeScanId");
+  } catch {
+    return null;
+  }
+};
+
+const buildAttackSurfaceUrl = (endpoint, orgId, scanId = null) => {
+  const params = new URLSearchParams({ org_id: String(orgId) });
+  if (scanId) params.set("scan", String(scanId));
+  return `${ATTACK_SURFACE_URL}/${endpoint}/?${params.toString()}`;
+};
+
+export const fetchAttackSurface = async (endpoint, orgId, pageUrl = null, scanId = null) => {
   const token = localStorage.getItem("accessToken");
-  const url = pageUrl || `${ATTACK_SURFACE_URL}/${endpoint}/?org_id=${orgId}`;
+  const resolvedScanId = scanId ?? getActiveScanId();
+  const url = pageUrl || buildAttackSurfaceUrl(endpoint, orgId, resolvedScanId);
 
   try {
     const response = await axios.get(url, {
@@ -172,11 +187,12 @@ export const fetchAttackSurface = async (endpoint, orgId, pageUrl = null) => {
   }
 };
 
-export const fetchAllPages = async (endpoint, orgId) => {
-  const baseUrl = `${ATTACK_SURFACE_URL}/${endpoint}/?org_id=${orgId}`;
+export const fetchAllPages = async (endpoint, orgId, scanId = null) => {
+  const resolvedScanId = scanId ?? getActiveScanId();
+  const baseUrl = buildAttackSurfaceUrl(endpoint, orgId, resolvedScanId);
 
   try {
-    const first = await fetchAttackSurface(endpoint, orgId, baseUrl);
+    const first = await fetchAttackSurface(endpoint, orgId, baseUrl, resolvedScanId);
     if (!first.results || first.count === 0) return [];
 
     const pageSize = first.results.length;
@@ -239,6 +255,41 @@ export const getScanStatus = async (scanId) => {
   } catch (error) {
     throw error.response?.data || { message: "Failed to get scan status" };
   }
+};
+
+export const addMonitoredDomain = async (payload) => {
+  const token = localStorage.getItem("accessToken");
+  const response = await axios.post(`${ATTACK_SURFACE_URL}/domains/`, payload, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (response.data?.scan_id) {
+    localStorage.setItem("activeScanId", String(response.data.scan_id));
+  }
+  return response.data;
+};
+
+export const fetchMonitoredDomains = async (orgId = "1") => {
+  const token = localStorage.getItem("accessToken");
+  const response = await axios.get(`${ATTACK_SURFACE_URL}/domains/?org_id=${orgId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+};
+
+export const quickScanDomain = async (domain, orgId = "1") => {
+  const token = localStorage.getItem("accessToken");
+  const response = await axios.post(
+    `${ATTACK_SURFACE_URL}/domains/quick-scan/`,
+    { domain, org_id: orgId },
+    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+  );
+  if (response.data?.scan_id) {
+    localStorage.setItem("activeScanId", String(response.data.scan_id));
+  }
+  return response.data;
 };
 
 export default api;

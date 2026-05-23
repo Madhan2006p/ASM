@@ -114,7 +114,13 @@ const SSLCertificatePage = () => {
     try {
       const date = new Date(dateString);
       if (isNaN(date.getTime())) return '-';
-      return date.toLocaleString();
+      const dateStr = date.toLocaleDateString();
+      const timeStr = date.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      return `${dateStr} ${timeStr}`;
     } catch (error) {
       return '-';
     }
@@ -146,7 +152,11 @@ const SSLCertificatePage = () => {
       const date = new Date(dateString);
       if (isNaN(date.getTime())) return <span className="text-muted">-</span>;
       const dateStr = date.toLocaleDateString();
-      const timeStr = date.toLocaleTimeString();
+      const timeStr = date.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
       return (
         <div className="d-flex flex-column align-items-start" style={{ lineHeight: '1.2' }}>
           <span style={{ color: 'var(--text-primary, #1e293b)', fontWeight: 500, fontSize: '0.82rem' }}>{dateStr}</span>
@@ -471,4 +481,3 @@ const shadowItCount = React.useMemo(() => {
 };
 
 export default SSLCertificatePage;
-

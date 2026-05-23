@@ -15,6 +15,7 @@ const DigitalFootprintsPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [subdomains, setSubdomains] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(200);
   const [showModal, setShowModal] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalData, setModalData] = useState([]);
@@ -48,6 +49,34 @@ const DigitalFootprintsPage = () => {
      });
      return Array.from(domainsSet);
    }, [subdomains]);
+
+   const getStatusInfo = React.useCallback((status) => {
+     // Handle both string status ('Active'/'Inactive'/'Down'/'Scanning') and numeric status codes
+     let text = 'Inactive';
+     let isActive = false;
+     let isScanning = false;
+
+     if (typeof status === 'string') {
+       const lower = status.toLowerCase();
+       if (lower === 'active') {
+         isActive = true;
+         text = 'Active';
+       } else if (lower === 'scanning') {
+         isScanning = true;
+         text = 'Scanning';
+       }
+     } else if (typeof status === 'number') {
+       isActive = status >= 200 && status < 400;
+       text = isActive ? 'Active' : 'Inactive';
+     }
+
+     return {
+       text: text,
+       bgColor: isActive ? '#e8f5e9' : (isScanning ? '#fff8e1' : '#ffebee'),
+       textColor: isActive ? '#2e7d32' : (isScanning ? '#b78103' : '#d32f2f'),
+       dotColor: isActive ? '#4caf50' : (isScanning ? '#ffb300' : '#f44336')
+     };
+   }, []);
 
    const processedSubdomains = React.useMemo(() => {
      // First, filter by search term if any
@@ -105,7 +134,11 @@ const DigitalFootprintsPage = () => {
      });
 
      return result;
-   }, [subdomains, searchTerm]);
+   }, [subdomains, searchTerm, getStatusInfo]);
+
+  const displayedSubdomains = React.useMemo(() => {
+    return processedSubdomains.slice(0, visibleCount);
+  }, [processedSubdomains, visibleCount]);
 
   const getOrgId = () => {
     try {
@@ -194,6 +227,7 @@ const DigitalFootprintsPage = () => {
         ports: s.ports || [],
       })));
       setError(null);
+      setVisibleCount(200);
     } catch (err) {
       setError('Failed to fetch subdomains. Please try again.');
     } finally {
@@ -287,34 +321,6 @@ const DigitalFootprintsPage = () => {
       runSimulatedScan(targetSub);
     }
   };
-
-   const getStatusInfo = React.useCallback((status) => {
-     // Handle both string status ('Active'/'Inactive'/'Down'/'Scanning') and numeric status codes
-     let text = 'Inactive';
-     let isActive = false;
-     let isScanning = false;
-
-     if (typeof status === 'string') {
-       const lower = status.toLowerCase();
-       if (lower === 'active') {
-         isActive = true;
-         text = 'Active';
-       } else if (lower === 'scanning') {
-         isScanning = true;
-         text = 'Scanning';
-       }
-     } else if (typeof status === 'number') {
-       isActive = status >= 200 && status < 400;
-       text = isActive ? 'Active' : 'Inactive';
-     }
-     
-     return {
-       text: text,
-       bgColor: isActive ? '#e8f5e9' : (isScanning ? '#fff8e1' : '#ffebee'),
-       textColor: isActive ? '#2e7d32' : (isScanning ? '#b78103' : '#d32f2f'),
-       dotColor: isActive ? '#4caf50' : (isScanning ? '#ffb300' : '#f44336')
-     };
-   }, []);
 
   const parseArrayData = (data) => {
     if (!data) return [];
@@ -467,12 +473,11 @@ const DigitalFootprintsPage = () => {
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Hosted</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>IP Count</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>DNS Count</th>
-                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Vulnerability Count</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Updated At</th>
               </tr>
             </thead>
              <tbody>
-               {processedSubdomains.map((item, index) => {
+               {displayedSubdomains.map((item, index) => {
                    const { _computed } = item;
                    const isHosted = _computed.ipCount > 0;
                    
@@ -567,26 +572,15 @@ const DigitalFootprintsPage = () => {
                            </div>
                          </div>
                        </td>
-                       <td className="px-4 py-3" style={{ color: 'var(--text-color)' }}>
-                         <div className="d-flex align-items-center">
-                           {_computed.vulnCount > 0 ? (
-                             <span className="badge rounded-pill bg-danger" style={{ padding: '6px 10px' }}>
-                               <i className="bi bi-bug me-1"></i> {_computed.vulnCount}
-                             </span>
-                           ) : (
-                             <span style={{ opacity: 0.5 }}>-</span>
-                           )}
-                         </div>
-                       </td>
-                       <td className="px-4 py-3 date-cell">
-                         {renderExactTimestamp(item.updated_at)}
+                        <td className="px-4 py-3 date-cell">
+                          {renderExactTimestamp(item.updated_at)}
                        </td>
                      </tr>
                    );
                  })}
-                {sortedSubdomains.length === 0 && (
+                 {processedSubdomains.length === 0 && (
                   <tr>
-                    <td colSpan="7" className="text-center py-4">
+                    <td colSpan="6" className="text-center py-4">
                       <p className="text-muted mb-0">No subdomains found.</p>
                     </td>
                   </tr>
@@ -594,6 +588,17 @@ const DigitalFootprintsPage = () => {
             </tbody>
           </Table>
         </div>
+
+        {processedSubdomains.length > visibleCount && (
+          <div className="d-flex justify-content-center mt-3">
+            <Button
+              variant="outline-primary"
+              onClick={() => setVisibleCount((prev) => prev + 200)}
+            >
+              Load More ({processedSubdomains.length - visibleCount} remaining)
+            </Button>
+          </div>
+        )}
 
         {/* Empty State */}
         {subdomains.length === 0 && !loading && (

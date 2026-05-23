@@ -2,8 +2,10 @@ from django.urls import path
 
 from .views import (
     DirectoryListView,
+    DomainQuickScanView,
     EmailSecurityListView,
     EndpointListView,
+    MonitoredDomainListView,
     PortListView,
     SSLResultListView,
     ScanListView,
@@ -24,6 +26,8 @@ urlpatterns = [
     path("ssl-certificates/", SSLResultListView.as_view(), name="attack-surface-ssl"),
     path("email-security/", EmailSecurityListView.as_view(), name="attack-surface-email"),
     path("scans/", ScanListView.as_view(), name="attack-surface-scans"),
+    path("domains/", MonitoredDomainListView.as_view(), name="attack-surface-domains"),
+    path("domains/quick-scan/", DomainQuickScanView.as_view(), name="attack-surface-domain-quick-scan"),
     path("scan/", ScanTriggerView.as_view(), name="attack-surface-scan-trigger"),
     path("scan/<int:id>/", ScanStatusView.as_view(), name="attack-surface-scan-status"),
 ]

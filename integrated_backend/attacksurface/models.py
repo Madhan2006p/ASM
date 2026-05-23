@@ -33,6 +33,27 @@ class AttackSurfaceScan(models.Model):
         return f"{self.target} ({self.status})"
 
 
+class MonitoredDomain(models.Model):
+    domain = models.CharField(max_length=255)
+    org_id = models.CharField(max_length=50, default="1")
+    morning_time = models.TimeField(default="09:00")
+    night_time = models.TimeField(default="21:00")
+    morning_enabled = models.BooleanField(default=True)
+    night_enabled = models.BooleanField(default=True)
+    auto_scan_on_add = models.BooleanField(default=True)
+    last_morning_scan_at = models.DateTimeField(null=True, blank=True)
+    last_night_scan_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("domain", "org_id")
+        ordering = ["domain"]
+
+    def __str__(self):
+        return self.domain
+
+
 class SubdomainResult(models.Model):
     scan = models.ForeignKey(
         AttackSurfaceScan, on_delete=models.CASCADE, related_name="subdomains"

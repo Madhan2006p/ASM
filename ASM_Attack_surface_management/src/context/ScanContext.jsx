@@ -40,6 +40,11 @@ export const ScanProvider = ({ children }) => {
     try {
       const result = await triggerScan(target, "1");
       const scanId = result.scan_id;
+      try {
+        localStorage.setItem("activeScanId", String(scanId));
+      } catch {
+        // ignore storage failures
+      }
 
       addLog(`[+] Scan submitted (ID: ${scanId})`, "success");
 
@@ -121,17 +126,18 @@ export const ScanProvider = ({ children }) => {
 
   const refreshPhaseData = useCallback(async (phasesDone) => {
     const orgId = "1";
+    const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
     const fetches = [];
-    if (phasesDone.subdomains_done) fetches.push(fetchAllPages("subdomains", orgId).catch(() => []));
-    if (phasesDone.endpoints_done) fetches.push(fetchAllPages("endpoints", orgId).catch(() => []));
-    if (phasesDone.ports_done) fetches.push(fetchAllPages("open-ports", orgId).catch(() => []));
-    if (phasesDone.technologies_done) fetches.push(fetchAllPages("technologies", orgId).catch(() => []));
-    if (phasesDone.vulnerabilities_done) fetches.push(fetchAllPages("vulnerabilities", orgId).catch(() => []));
-    if (phasesDone.ssl_done) fetches.push(fetchAllPages("ssl-certificates", orgId).catch(() => []));
+    if (phasesDone.subdomains_done) fetches.push(fetchAllPages("subdomains", orgId, activeScanId).catch(() => []));
+    if (phasesDone.endpoints_done) fetches.push(fetchAllPages("endpoints", orgId, activeScanId).catch(() => []));
+    if (phasesDone.ports_done) fetches.push(fetchAllPages("open-ports", orgId, activeScanId).catch(() => []));
+    if (phasesDone.technologies_done) fetches.push(fetchAllPages("technologies", orgId, activeScanId).catch(() => []));
+    if (phasesDone.vulnerabilities_done) fetches.push(fetchAllPages("vulnerabilities", orgId, activeScanId).catch(() => []));
+    if (phasesDone.ssl_done) fetches.push(fetchAllPages("ssl-certificates", orgId, activeScanId).catch(() => []));
     if (fetches.length > 0) {
       await Promise.all(fetches);
     }
-  }, []);
+  }, [scanState.scanId]);
 
   return (
     <ScanContext.Provider value={{ scanState, startScan, stopScan, refreshPhaseData, addLog, refreshKey }}>

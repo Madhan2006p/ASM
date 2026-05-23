@@ -108,6 +108,12 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Kolkata'
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_BEAT_SCHEDULE = {
+    'run-scheduled-domain-scans-every-minute': {
+        'task': 'attacksurface.tasks.run_scheduled_domain_scans',
+        'schedule': 60.0,
+    },
+}
 
 # ─── Scan tool paths (configure to actual paths) ──────────────────────────────
 DIRSEARCH_PATH = 'dirsearch'

@@ -5,7 +5,7 @@ import Sidebar from "../components/Sidebar";
 import { useNavigate } from "react-router-dom";
 import * as jsPDFModule from "jspdf";
 import { sanitizeSubdomainStr, getRootDomain, combineSubdomainAndRoot } from "../utils/domainSanitizer";
-import { fetchAllPages } from "../utils/api";
+import { addMonitoredDomain, fetchAllPages, fetchMonitoredDomains } from "../utils/api";
 import { useScan } from "../context/ScanContext";
 
 const jsPDF = jsPDFModule.jsPDF || jsPDFModule.default?.jsPDF || jsPDFModule.default || jsPDFModule;
@@ -40,7 +40,7 @@ const DashboardPage = () => {
       const date = new Date(dateString);
       if (isNaN(date.getTime())) return <span className="text-muted">-</span>;
       const dateStr = date.toLocaleDateString();
-      const timeStr = date.toLocaleTimeString();
+      const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
       return (
         <div className="d-flex flex-column align-items-start" style={{ lineHeight: '1.2' }}>
           <span style={{ color: 'var(--text-primary, #1a1a1a)', fontWeight: 500, fontSize: '0.82rem' }}>{dateStr}</span>
@@ -104,7 +104,12 @@ const DashboardPage = () => {
   const [activities, setActivities] = useState([]);
 
   // Tab State for Asset & Environment Explorer
-  const [explorerTab, setExplorerTab] = useState("hosts");
+  const [explorerTab, setExplorerTab] = useState("web_entities");
+  const [domainInput, setDomainInput] = useState("");
+  const [morningTime, setMorningTime] = useState("09:00");
+  const [nightTime, setNightTime] = useState("21:00");
+  const [monitoredDomains, setMonitoredDomains] = useState([]);
+  const [domainSaving, setDomainSaving] = useState(false);
 
   // States for extra explorer tabs
   const [buckets, setBuckets] = useState([]);
@@ -150,13 +155,14 @@ const DashboardPage = () => {
   const loadData = useCallback(async () => {
     try {
       const orgId = "1";
-      const [subList, vulnList, endpointsList, portList, techList, sslList] = await Promise.all([
+      const [subList, vulnList, endpointsList, portList, techList, sslList, domainList] = await Promise.all([
         fetchAllPages('subdomains', orgId).catch(() => []),
         fetchAllPages('vulnerabilities', orgId).catch(() => []),
         fetchAllPages('endpoints', orgId).catch(() => []),
         fetchAllPages('open-ports', orgId).catch(() => []),
         fetchAllPages('technologies', orgId).catch(() => []),
         fetchAllPages('ssl-certificates', orgId).catch(() => []),
+        fetchMonitoredDomains(orgId).catch(() => []),
       ]);
 
       const safeSubs = subList.map(s => ({
@@ -202,6 +208,7 @@ const DashboardPage = () => {
       setWebEntities(endpointsList);
       setCertificates(sslList);
       setPortCount(portList.length);
+      setMonitoredDomains(domainList);
 
       setActivities(prev => ["Dashboard loaded with live scan data.", ...prev.slice(0, 4)]);
     } catch (err) {
@@ -253,6 +260,51 @@ const DashboardPage = () => {
     setTimeout(() => {
       setActivities(prev => [`Scan started for ${target}`, ...prev.slice(0, 9)]);
     }, 500);
+  };
+
+  const normalizeDomainInput = (value) => {
+    return value.trim().toLowerCase().replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
+  };
+
+  const handleAddDomain = async (e) => {
+    e.preventDefault();
+    const domain = normalizeDomainInput(domainInput);
+    if (!domain) return;
+    setDomainSaving(true);
+    try {
+      const result = await addMonitoredDomain({
+        domain,
+        org_id: "1",
+        morning_time: morningTime,
+        night_time: nightTime,
+        morning_enabled: true,
+        night_enabled: true,
+        auto_scan_on_add: true,
+        scan_now: false,
+      });
+      contextStartScan(domain);
+      setActivities(prev => [`Domain added, scheduled, and scan started for ${domain}`, ...prev.slice(0, 9)]);
+      setDomainInput("");
+      await loadData();
+    } catch {
+      setActivities(prev => [`Failed to add domain ${domain}`, ...prev.slice(0, 9)]);
+    } finally {
+      setDomainSaving(false);
+    }
+  };
+
+  const handleQuickScan = async () => {
+    const domain = normalizeDomainInput(domainInput || monitoredDomains[0]?.domain || "");
+    if (!domain) return;
+    setDomainSaving(true);
+    try {
+      contextStartScan(domain);
+      setActivities(prev => [`Quick scan started for ${domain}`, ...prev.slice(0, 9)]);
+    } catch {
+      setActivities(prev => [`Failed to start quick scan for ${domain}`, ...prev.slice(0, 9)]);
+    } finally {
+      setDomainSaving(false);
+    }
   };
 
   // Smart Subdomain wizard submit handler
@@ -770,6 +822,93 @@ const DashboardPage = () => {
 
 
 
+        <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+          <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
+            <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Domain Scan Control</h5>
+            <span className="text-muted small">Add a domain to auto-scan immediately, schedule morning/night scans, or run a quick scan anytime.</span>
+          </Card.Header>
+          <Card.Body>
+            <Form onSubmit={handleAddDomain}>
+              <Row className="g-3 align-items-end">
+                <Col md={5}>
+                  <Form.Label className="small text-muted fw-semibold">Domain</Form.Label>
+                  <Form.Control
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    placeholder="example.com"
+                    style={{ borderRadius: '10px' }}
+                  />
+                </Col>
+                <Col md={2}>
+                  <Form.Label className="small text-muted fw-semibold">Morning Scan</Form.Label>
+                  <Form.Control type="time" value={morningTime} onChange={(e) => setMorningTime(e.target.value)} style={{ borderRadius: '10px' }} />
+                </Col>
+                <Col md={2}>
+                  <Form.Label className="small text-muted fw-semibold">Night Scan</Form.Label>
+                  <Form.Control type="time" value={nightTime} onChange={(e) => setNightTime(e.target.value)} style={{ borderRadius: '10px' }} />
+                </Col>
+                <Col md={3} className="d-flex gap-2">
+                  <Button type="submit" variant="primary" disabled={domainSaving} className="flex-fill" style={{ borderRadius: '10px' }}>
+                    {domainSaving ? <Spinner animation="border" size="sm" /> : 'Add & Auto Scan'}
+                  </Button>
+                  <Button type="button" variant="outline-success" disabled={domainSaving} onClick={handleQuickScan} style={{ borderRadius: '10px' }}>
+                    Quick Scan
+                  </Button>
+                </Col>
+              </Row>
+            </Form>
+
+            <div className="mt-4 table-responsive rounded-3 border" style={{ borderColor: 'var(--header-border)', background: 'var(--bg-color)' }}>
+              <Table hover className="mb-0 align-middle">
+                <thead>
+                  <tr>
+                    <th className="py-3 px-4 border-0">Domain</th>
+                    <th className="py-3 px-4 border-0">Morning Scan</th>
+                    <th className="py-3 px-4 border-0">Night Scan</th>
+                    <th className="py-3 px-4 border-0">Last Morning</th>
+                    <th className="py-3 px-4 border-0">Last Night</th>
+                    <th className="py-3 px-4 border-0 text-end">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monitoredDomains.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3 fw-semibold" style={{ color: 'var(--text-color)' }}>{item.domain}</td>
+                      <td className="px-4 py-3">
+                        <Badge bg={item.morning_enabled ? 'success' : 'secondary'}>{item.morning_time?.slice(0, 5) || '-'}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge bg={item.night_enabled ? 'primary' : 'secondary'}>{item.night_time?.slice(0, 5) || '-'}</Badge>
+                      </td>
+                      <td className="px-4 py-3">{renderExactTimestamp(item.last_morning_scan_at)}</td>
+                      <td className="px-4 py-3">{renderExactTimestamp(item.last_night_scan_at)}</td>
+                      <td className="px-4 py-3 text-end">
+                        <Button
+                          size="sm"
+                          variant="outline-success"
+                          disabled={domainSaving || scanState.isScanning}
+                          onClick={() => {
+                            setDomainInput(item.domain);
+                            contextStartScan(item.domain);
+                            setActivities(prev => [`Quick scan started for ${item.domain}`, ...prev.slice(0, 9)]);
+                          }}
+                        >
+                          Quick Scan
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {monitoredDomains.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="text-center text-muted py-4">No domains added yet. Add a domain above to schedule and scan it.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          </Card.Body>
+        </Card>
+
         {/* Horizontal Scrollable Asset & Environment Explorer (9 Tabs) */}
         <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
           <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
@@ -780,8 +919,6 @@ const DashboardPage = () => {
             {/* Horizontally scrolling tab navigation */}
             <div className="d-flex border-bottom mb-4 pb-2 scrollbar-none" style={{ overflowX: "auto", gap: "10px", whiteSpace: "nowrap", borderColor: 'var(--header-border, rgba(0, 0, 0, 0.08))' }}>
               {[
-                { id: "hosts", label: "Hosts", icon: "bi-laptop" },
-                { id: "domains", label: "Domains", icon: "bi-globe" },
                 { id: "web_entities", label: "Web Entities", icon: "bi-link-45deg" },
                 { id: "buckets", label: "Storage Buckets", icon: "bi-bucket" },
                 { id: "certificates", label: "Certificates", icon: "bi-shield-check" },

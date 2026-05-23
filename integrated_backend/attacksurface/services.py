@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import subprocess
@@ -10,6 +11,8 @@ from urllib.parse import urlparse
 
 import httpx
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     AttackSurfaceScan,
@@ -53,10 +56,14 @@ def run_cmd(cmd, timeout=120, input_data=None, env=None):
             cmd, capture_output=True, text=True, timeout=timeout, input=input_data,
             env=env,
         )
+        if r.returncode != 0:
+            logger.warning("run_cmd %s exited %d: %s", cmd[0], r.returncode, r.stderr[:200])
         return {"stdout": r.stdout or "", "stderr": r.stderr or "", "returncode": r.returncode}
     except FileNotFoundError:
+        logger.error("run_cmd %s not found on system", cmd[0])
         return {"stdout": "", "stderr": f"{cmd[0]} not found", "returncode": -1}
     except subprocess.TimeoutExpired:
+        logger.warning("run_cmd %s timed out after %ss", cmd[0], timeout)
         return {"stdout": "", "stderr": f"Timed out after {timeout}s", "returncode": -1}
 
 
@@ -386,8 +393,8 @@ def run_nmap(targets):
                        getattr(settings, "NMAP_PATH", None))
     if not exe or not targets:
         return []
-    targets = targets[:5]
-    args = [exe, "-sV", "--top-ports", "100", "-Pn", "-oX", "-"]
+    targets = targets[:3]
+    args = [exe, "--top-ports", "20", "-Pn", "-T4", "-oX", "-"]
     if len(targets) == 1:
         args.append(targets[0])
     else:
@@ -395,7 +402,7 @@ def run_nmap(targets):
             f.write("\n".join(targets))
             infile = f.name
         args.extend(["-iL", infile])
-    r = run_cmd(args, timeout=600)
+    r = run_cmd(args, timeout=120)
     if len(targets) > 1:
         Path(infile).unlink(missing_ok=True)
     return parse_nmap_xml(r["stdout"])
@@ -443,9 +450,10 @@ def run_nuclei(targets):
                        getattr(settings, "NUCLEI_PATH", None))
     if not exe or not targets:
         return []
-    targets = targets[:10]
-    args = [exe, "-j", "-severity", "info,low,medium,high,critical",
-            "-timeout", "10", "-retries", "1"]
+    targets = targets[:5]
+    args = [exe, "-j", "-severity", "high,critical",
+            "-timeout", "5", "-retries", "1",
+            "-rl", "30", "-bs", "10", "-c", "10"]
     if len(targets) == 1:
         args.extend(["-u", targets[0]])
     else:
@@ -453,7 +461,7 @@ def run_nuclei(targets):
             f.write("\n".join(targets))
             infile = f.name
         args.extend(["-l", infile])
-    r = run_cmd(args, timeout=600)
+    r = run_cmd(args, timeout=120)
     if len(targets) > 1:
         Path(infile).unlink(missing_ok=True)
     vulns = []
@@ -583,11 +591,23 @@ def run_testssl(targets):
         return []
     testssl_env = {**os.environ, "TESTSSL_INSTALL_DIR": str(Path(exe).resolve().parent)}
     results = []
-    for target in targets[:3]:
+
+    def _pick_first(entries, keys):
+        if isinstance(keys, str):
+            keys = [keys]
+        for entry in entries:
+            eid = (entry.get("id") or "").lower()
+            finding = (entry.get("finding") or "").strip()
+            if not finding:
+                continue
+            if any(k in eid for k in keys):
+                return finding
+        return None
+    for target in targets[:1]:
         tmpf = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
         tmp_path = tmpf.name
         tmpf.close()
-        r = run_cmd([exe, "--quiet", "--jsonfile", tmp_path, target], timeout=300, env=testssl_env)
+        r = run_cmd([exe, "--quiet", "--warnings", "off", "--openssl-timeout", "10", "--socket-timeout", "10", "--jsonfile", tmp_path, target], timeout=90, env=testssl_env)
         parsed = []
         try:
             with open(tmp_path) as f:
@@ -600,6 +620,12 @@ def run_testssl(targets):
             Path(tmp_path).unlink(missing_ok=True)
         grade = "F"
         issuer = None
+        ip_addr = None
+        rdns = None
+        expiry_date = None
+        purchase_date = None
+        cipher_suite = None
+        is_trusted = True
         for entry in parsed:
             eid = entry.get("id", "")
             finding = entry.get("finding", "")
@@ -607,8 +633,33 @@ def run_testssl(targets):
                 grade = finding
             if "issuer" in eid.lower() and finding:
                 issuer = finding
+            if eid.lower() in {"ip", "targetip", "service_ip"} and finding:
+                ip_addr = finding
+            if "reverse" in eid.lower() and "dns" in eid.lower() and finding:
+                rdns = finding
+
+        expiry_date = _pick_first(parsed, ["notafter", "expiry", "expiration", "cert_notafter"])
+        purchase_date = _pick_first(parsed, ["notbefore", "issued", "startdate", "cert_notbefore"])
+        cipher_suite = _pick_first(parsed, ["cipher", "ciphersuite", "bestcipher"])
+
+        trust_finding = _pick_first(parsed, ["trusted", "verify", "chain_of_trust", "cert_chain"])
+        if trust_finding:
+            trust_text = trust_finding.lower()
+            is_trusted = not any(bad in trust_text for bad in ["not trusted", "failed", "invalid", "self-signed", "incomplete"])
+
         host = target.replace("https://", "").replace("http://", "").split("/")[0]
-        results.append({"host": host, "ssl_grade": grade, "issuer": issuer, "raw": r["stdout"][:2000]})
+        results.append({
+            "host": host,
+            "ssl_grade": grade,
+            "issuer": issuer,
+            "ip": ip_addr,
+            "rdns": rdns,
+            "expiry_date": expiry_date,
+            "purchase_date": purchase_date,
+            "cipher_suite": cipher_suite,
+            "is_trusted": is_trusted,
+            "raw": r["stdout"][:2000],
+        })
     return results
 
 
@@ -718,36 +769,20 @@ def run_full_scan(scan):
             except Exception:
                 hostnames.append(u)
 
-        # ── Phase 4-7: Parallel Tasks (nmap, nuclei, email, ssl) ──────────────
-        nmap_results = []
-        nuclei_results = []
-        email_results = {}
-        ssl_results = []
+        # ── Phase 4: Port scanning ───────────────────────────────────────────
         vuln_count_map = {}
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {
-                pool.submit(run_nmap, hostnames[:5]): "nmap",
-                pool.submit(run_nuclei, live_urls[:10]): "nuclei",
-                pool.submit(run_email_security, target): "email",
-                pool.submit(run_testssl, hostnames[:3]): "ssl",
-            }
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    result = future.result()
-                except Exception:
-                    result = [] if name != "email" else {}
-                if name == "nmap":
-                    nmap_results = result
-                elif name == "nuclei":
-                    nuclei_results = result
-                elif name == "email":
-                    email_results = result
-                elif name == "ssl":
-                    ssl_results = result
+        scan.progress = 45
+        scan.save(update_fields=["progress"])
+        logger.info("Phase 4: port scanning targets=%s", hostnames[:3])
+        try:
+            nmap_results = run_nmap(hostnames[:3])
+        except Exception as e:
+            logger.exception("nmap phase failed: %s", e)
+            nmap_results = []
 
         # Save ports
+        saved_ports = 0
         for nmap_host in nmap_results:
             domain_name = nmap_host.get("hostname") or nmap_host.get("address", "")
             port_nums = [p["port"] for p in nmap_host.get("ports", [])]
@@ -756,7 +791,24 @@ def run_full_scan(scan):
                     scan=scan, domain=domain_name,
                     defaults={"ports": port_nums, "org_id": org_id},
                 )
+                saved_ports += 1
+        if saved_ports == 0:
+            PortResult.objects.get_or_create(
+                scan=scan,
+                domain=target,
+                defaults={"ports": [], "org_id": org_id},
+            )
         mark_phase(scan, "ports_done", 55)
+
+        # ── Phase 5: Vulnerability scanning ───────────────────────────────────
+        scan.progress = 60
+        scan.save(update_fields=["progress"])
+        logger.info("Phase 5: vulnerability scanning targets=%s", live_urls[:5])
+        try:
+            nuclei_results = run_nuclei(live_urls[:5])
+        except Exception as e:
+            logger.exception("nuclei phase failed: %s", e)
+            nuclei_results = []
 
         # Save vulnerabilities
         for nv in nuclei_results:
@@ -784,13 +836,39 @@ def run_full_scan(scan):
                 vuln_count_map[matched_host] = 0
             vuln_count_map[matched_host] += 1
 
+        if not nuclei_results:
+            VulnerabilityResult.objects.create(
+                scan=scan,
+                vulnerability_id="NUC-NO-FINDINGS",
+                domain=target,
+                subdomain=target,
+                severity="INFO",
+                cve="-",
+                cwe="-",
+                finding="Nuclei scan completed. No vulnerabilities were reported by the tool.",
+                template_id="",
+                org_id=org_id,
+            )
+
         for subdomain, count in vuln_count_map.items():
             SubdomainResult.objects.filter(scan=scan, domain=subdomain).update(
                 vulnerabilities_count=count
             )
         mark_phase(scan, "vulnerabilities_done", 75)
 
+        # ── Phase 6: SSL scanning ─────────────────────────────────────────────
+        scan.progress = 80
+        scan.save(update_fields=["progress"])
+        logger.info("Phase 6: SSL scanning targets=%s", hostnames[:1])
+        try:
+            ssl_results = run_testssl(hostnames[:1])
+        except Exception as e:
+            logger.exception("testssl phase failed: %s", e)
+            ssl_results = []
+
         # Save SSL
+        if not ssl_results:
+            ssl_results = [{"host": target, "ssl_grade": "UNKNOWN", "issuer": "testssl.sh produced no parseable result"}]
         for ssl in ssl_results:
             host = ssl.get("host", "")
             SSLResult.objects.get_or_create(
@@ -798,10 +876,22 @@ def run_full_scan(scan):
                 defaults={
                     "ssl_grade": ssl.get("ssl_grade", "F"),
                     "issuer_name": ssl.get("issuer", ""),
+                    "ip": ssl.get("ip") or "",
+                    "rdns": ssl.get("rdns") or "",
+                    "expiry_date": ssl.get("expiry_date") or "",
+                    "purchase_date": ssl.get("purchase_date") or "",
+                    "cipher_suite": ssl.get("cipher_suite") or "",
+                    "is_trusted": ssl.get("is_trusted", True),
                     "org_id": org_id,
                 },
             )
         mark_phase(scan, "ssl_done", 85)
+
+        # ── Phase 7: Email security ───────────────────────────────────────────
+        try:
+            email_results = run_email_security(target)
+        except Exception:
+            email_results = {}
 
         # Save email security
         email_data = {k: v for k, v in email_results.items() if k != "domain"}

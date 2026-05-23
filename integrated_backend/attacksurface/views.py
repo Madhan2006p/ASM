@@ -10,6 +10,7 @@ from .models import (
     DirectoryResult,
     EmailSecurityResult,
     EndpointResult,
+    MonitoredDomain,
     PortResult,
     SSLResult,
     SubdomainResult,
@@ -21,6 +22,7 @@ from .serializers import (
     DirectoryResultSerializer,
     EmailSecurityResultSerializer,
     EndpointResultSerializer,
+    MonitoredDomainSerializer,
     PortResultSerializer,
     SSLResultSerializer,
     SubdomainResultSerializer,
@@ -113,6 +115,68 @@ class ScanTriggerView(APIView):
             {"scan_id": scan.id, "target": target, "status": "pending"},
             status=status.HTTP_201_CREATED,
         )
+
+
+def start_attack_surface_scan(target, org_id="1"):
+    scan = AttackSurfaceScan.objects.create(target=target, org_id=org_id, status="pending")
+    thread = threading.Thread(target=run_full_scan, args=(scan,), daemon=True)
+    thread.start()
+    return scan
+
+
+class MonitoredDomainListView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        org_id = request.query_params.get("org_id", "1")
+        qs = MonitoredDomain.objects.filter(org_id=org_id)
+        return Response(MonitoredDomainSerializer(qs, many=True).data)
+
+    def post(self, request):
+        domain = request.data.get("domain", "").strip().lower()
+        org_id = request.data.get("org_id", "1")
+        if domain.startswith("http://") or domain.startswith("https://"):
+            domain = domain.split("//", 1)[1].split("/", 1)[0]
+        domain = domain.split(":", 1)[0].removeprefix("www.")
+        if not domain:
+            return Response({"error": "domain is required"}, status=400)
+
+        defaults = {
+            "morning_time": request.data.get("morning_time") or "09:00",
+            "night_time": request.data.get("night_time") or "21:00",
+            "morning_enabled": request.data.get("morning_enabled", True),
+            "night_enabled": request.data.get("night_enabled", True),
+            "auto_scan_on_add": request.data.get("auto_scan_on_add", True),
+        }
+        monitored, created = MonitoredDomain.objects.update_or_create(
+            domain=domain,
+            org_id=org_id,
+            defaults=defaults,
+        )
+
+        scan = None
+        if request.data.get("scan_now", defaults["auto_scan_on_add"]):
+            scan = start_attack_surface_scan(domain, org_id)
+
+        data = MonitoredDomainSerializer(monitored).data
+        if scan:
+            data["scan_id"] = scan.id
+        data["created"] = created
+        return Response(data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class DomainQuickScanView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        domain = request.data.get("domain", "").strip().lower()
+        org_id = request.data.get("org_id", "1")
+        if not domain:
+            return Response({"error": "domain is required"}, status=400)
+        scan = start_attack_surface_scan(domain, org_id)
+        return Response({"scan_id": scan.id, "target": domain, "status": "pending"})
 
 
 class ScanStatusView(RetrieveAPIView):
