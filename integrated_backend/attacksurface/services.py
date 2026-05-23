@@ -141,8 +141,8 @@ def techs_to_nuclei_tags(tech_list):
             if not matched:
                 # use the tech name itself as a candidate tag
                 tags.add(key.replace(" ", "-").replace("_", "-"))
-    # always include generic useful tags
-    tags.update({"cve", "misconfiguration", "exposure", "default-login"})
+    # Add generic security tags (without broad 'cve' which times out with 4000+ templates)
+    tags.update({"misconfiguration", "exposure"})
     return sorted(tags)
 
 
