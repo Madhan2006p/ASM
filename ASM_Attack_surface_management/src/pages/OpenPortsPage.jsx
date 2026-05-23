@@ -20,6 +20,21 @@ const OpenPortsPage = () => {
   const { orgId } = useParams();
   const token = localStorage.getItem('accessToken');
 
+  const PORT_NAMES = {
+    21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS',
+    80: 'HTTP', 110: 'POP3', 111: 'RPC', 135: 'MSRPC', 139: 'NetBIOS',
+    143: 'IMAP', 443: 'HTTPS', 445: 'SMB', 465: 'SMTPS', 587: 'SMTP',
+    993: 'IMAPS', 995: 'POP3S', 1433: 'MSSQL', 1521: 'Oracle',
+    2049: 'NFS', 3306: 'MySQL', 3389: 'RDP', 5432: 'PostgreSQL',
+    5900: 'VNC', 6379: 'Redis', 8080: 'HTTP-Proxy', 8443: 'HTTPS-Alt',
+    27017: 'MongoDB',
+  };
+
+  const formatPort = (port) => {
+    const name = PORT_NAMES[port];
+    return name ? `${port} (${name})` : `${port}`;
+  };
+
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -45,7 +60,7 @@ const OpenPortsPage = () => {
         worksheet.addRow({
           id: index + 1,
           domain: item.domain || '-',
-          ports: Array.isArray(item.ports) ? item.ports.join(', ') : '-',
+          ports: Array.isArray(item.ports) ? item.ports.map(formatPort).join(', ') : '-',
           created_at: item.created_at ? formatDateShort(item.created_at) : '-',
           updated_at: item.updated_at ? formatDateShort(item.updated_at) : '-'
         });
@@ -176,7 +191,11 @@ const OpenPortsPage = () => {
                     const search = searchTerm.toLowerCase();
                     return (
                       (item.domain?.toLowerCase().includes(search)) ||
-                      (item.ports && Array.isArray(item.ports) && item.ports.some(port => port && port.toString().toLowerCase().includes(search)))
+                      (item.ports && Array.isArray(item.ports) && item.ports.some(port => {
+                        const portStr = String(port).toLowerCase();
+                        const portName = (PORT_NAMES[port] || '').toLowerCase();
+                        return portStr.includes(search) || portName.includes(search);
+                      }))
                     );
                   })
                   .map((item, index) => {
@@ -195,7 +214,7 @@ const OpenPortsPage = () => {
                           )}
                         </td>
                         <td className="px-4" style={{ color: 'var(--text-color)' }}>
-                          {ports.length > 0 ? <span>Open: <strong>{ports.join(', ')}</strong></span> : <span className="text-muted fst-italic">No open ports</span>}
+                          {ports.length > 0 ? <span>Open: <strong>{ports.map(formatPort).join(', ')}</strong></span> : <span className="text-muted fst-italic">No open ports</span>}
                         </td>
                         <td className="px-4 date-cell">
                           {item.created_at ? (
