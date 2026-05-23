@@ -680,7 +680,7 @@ def run_directory_scan(targets):
             r = run_cmd(
                 [exe, "-u", target, "-o", outpath, "--output-formats=json",
                  "--timeout", "5", "-q"],
-                timeout=90, input_data="q\n",
+                timeout=90, input_data="q\nq\n",
             )
             with open(outpath) as f:
                 data = json.load(f)
@@ -941,11 +941,18 @@ def run_full_scan(scan):
         nuclei_tags = techs_to_nuclei_tags(all_techs) if all_techs else None
         logger.info("Phase 5: vulnerability scanning targets=%s techs=%s tags=%s",
                      live_urls[:5], sorted(all_techs), nuclei_tags)
+        nuclei_results = []
         try:
             nuclei_results = run_nuclei(live_urls[:5], tech_tags=nuclei_tags)
         except Exception as e:
             logger.exception("nuclei phase failed: %s", e)
-            nuclei_results = []
+        # Fallback: if tech-tagged scan found nothing, retry with severity-only scan
+        if not nuclei_results and live_urls:
+            logger.info("nuclei tech-tagged scan returned 0 results; falling back to severity scan")
+            try:
+                nuclei_results = run_nuclei(live_urls[:5], tech_tags=None)
+            except Exception as e:
+                logger.exception("nuclei fallback phase failed: %s", e)
 
         # Save vulnerabilities
         for nv in nuclei_results:
@@ -990,24 +997,32 @@ def run_full_scan(scan):
             logger.exception("testssl phase failed: %s", e)
             ssl_results = []
 
-        # Save SSL
+        # Save SSL (skip if no certificate data - e.g. host doesn't support HTTPS)
         logger.info("SSL scan found %d results", len(ssl_results))
         for ssl in ssl_results:
             host = ssl.get("host", "")
-            if host:
-                SSLResult.objects.get_or_create(
-                    scan=scan, domain=host,
-                    defaults={
-                        "ssl_grade": ssl.get("ssl_grade", "F"),
-                        "issuer_name": ssl.get("issuer", ""),
-                        "ip": ssl.get("ip") or "",
-                        "rdns": ssl.get("rdns") or "",
-                        "expiry_date": ssl.get("expiry_date") or "",
-                        "purchase_date": ssl.get("purchase_date") or "",
-                        "cipher_suite": ssl.get("cipher_suite") or "",
-                        "is_trusted": ssl.get("is_trusted", True),
-                        "org_id": org_id,
-                    },
+            if not host:
+                continue
+            grade = ssl.get("ssl_grade", "F")
+            issuer = ssl.get("issuer", "")
+            ip_addr = ssl.get("ip", "")
+            # Skip results where testssl couldn't connect (no issuer, no IP, grade=F is default)
+            if grade == "F" and not issuer and not ip_addr:
+                logger.info("Skipping SSL result for %s: no certificate data (host may not support HTTPS)", host)
+                continue
+            SSLResult.objects.get_or_create(
+                scan=scan, domain=host,
+                defaults={
+                    "ssl_grade": grade,
+                    "issuer_name": issuer,
+                    "ip": ip_addr,
+                    "rdns": ssl.get("rdns") or "",
+                    "expiry_date": ssl.get("expiry_date") or "",
+                    "purchase_date": ssl.get("purchase_date") or "",
+                    "cipher_suite": ssl.get("cipher_suite") or "",
+                    "is_trusted": ssl.get("is_trusted", True),
+                    "org_id": org_id,
+                },
                 )
         mark_phase(scan, "ssl_done", 85)
 
