@@ -912,12 +912,10 @@ def run_full_scan(scan):
                     defaults={"ports": port_nums, "org_id": org_id},
                 )
                 saved_ports += 1
-        if saved_ports == 0:
-            PortResult.objects.get_or_create(
-                scan=scan,
-                domain=target,
-                defaults={"ports": [], "org_id": org_id},
-            )
+        if saved_ports > 0:
+            logger.info("Found open ports on %d hosts", saved_ports)
+        else:
+            logger.info("No open ports found by nmap")
         mark_phase(scan, "ports_done", 55)
 
         # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
@@ -962,24 +960,11 @@ def run_full_scan(scan):
                 vuln_count_map[matched_host] = 0
             vuln_count_map[matched_host] += 1
 
-        if not nuclei_results:
-            VulnerabilityResult.objects.create(
-                scan=scan,
-                vulnerability_id="NUC-NO-FINDINGS",
-                domain=target,
-                subdomain=target,
-                severity="INFO",
-                cve="-",
-                cwe="-",
-                finding="Nuclei scan completed. No vulnerabilities were reported by the tool.",
-                template_id="",
-                org_id=org_id,
-            )
-
-        for subdomain, count in vuln_count_map.items():
-            SubdomainResult.objects.filter(scan=scan, domain=subdomain).update(
-                vulnerabilities_count=count
-            )
+        if nuclei_results:
+            for subdomain, count in vuln_count_map.items():
+                SubdomainResult.objects.filter(scan=scan, domain=subdomain).update(
+                    vulnerabilities_count=count
+                )
         mark_phase(scan, "vulnerabilities_done", 75)
 
         # ── Phase 6: SSL scanning ─────────────────────────────────────────────
@@ -993,24 +978,24 @@ def run_full_scan(scan):
             ssl_results = []
 
         # Save SSL
-        if not ssl_results:
-            ssl_results = [{"host": target, "ssl_grade": "UNKNOWN", "issuer": "testssl.sh produced no parseable result"}]
+        logger.info("SSL scan found %d results", len(ssl_results))
         for ssl in ssl_results:
             host = ssl.get("host", "")
-            SSLResult.objects.get_or_create(
-                scan=scan, domain=host,
-                defaults={
-                    "ssl_grade": ssl.get("ssl_grade", "F"),
-                    "issuer_name": ssl.get("issuer", ""),
-                    "ip": ssl.get("ip") or "",
-                    "rdns": ssl.get("rdns") or "",
-                    "expiry_date": ssl.get("expiry_date") or "",
-                    "purchase_date": ssl.get("purchase_date") or "",
-                    "cipher_suite": ssl.get("cipher_suite") or "",
-                    "is_trusted": ssl.get("is_trusted", True),
-                    "org_id": org_id,
-                },
-            )
+            if host:
+                SSLResult.objects.get_or_create(
+                    scan=scan, domain=host,
+                    defaults={
+                        "ssl_grade": ssl.get("ssl_grade", "F"),
+                        "issuer_name": ssl.get("issuer", ""),
+                        "ip": ssl.get("ip") or "",
+                        "rdns": ssl.get("rdns") or "",
+                        "expiry_date": ssl.get("expiry_date") or "",
+                        "purchase_date": ssl.get("purchase_date") or "",
+                        "cipher_suite": ssl.get("cipher_suite") or "",
+                        "is_trusted": ssl.get("is_trusted", True),
+                        "org_id": org_id,
+                    },
+                )
         mark_phase(scan, "ssl_done", 85)
 
         # ── Phase 7: Email security ───────────────────────────────────────────
