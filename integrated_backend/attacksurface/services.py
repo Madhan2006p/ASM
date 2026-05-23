@@ -885,14 +885,17 @@ def run_full_scan(scan):
             except Exception:
                 hostnames.append(u)
 
+        # Include all discovered subdomains for port scanning (not just HTTP-reachable ones)
+        all_scan_targets = list(dict.fromkeys(hostnames + subdomains))
+
         # ── Phase 4: Port scanning ───────────────────────────────────────────
         vuln_count_map = {}
 
         scan.progress = 45
         scan.save(update_fields=["progress"])
-        logger.info("Phase 4: port scanning targets=%s", hostnames[:3])
+        logger.info("Phase 4: port scanning targets=%s", all_scan_targets[:5])
         try:
-            nmap_results = run_nmap(hostnames[:3])
+            nmap_results = run_nmap(all_scan_targets[:5])
         except Exception as e:
             logger.exception("nmap phase failed: %s", e)
             nmap_results = []
