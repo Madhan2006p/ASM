@@ -195,7 +195,7 @@ const OpenPortsPage = () => {
                           )}
                         </td>
                         <td className="px-4" style={{ color: 'var(--text-color)' }}>
-                          {ports.length > 0 ? ports.join(', ') : <span className="text-muted fst-italic">No open ports</span>}
+                          {ports.length > 0 ? <span>Open: <strong>{ports.join(', ')}</strong></span> : <span className="text-muted fst-italic">No open ports</span>}
                         </td>
                         <td className="px-4 date-cell">
                           {item.created_at ? (

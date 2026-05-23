@@ -320,10 +320,10 @@ const shadowItCount = React.useMemo(() => {
                     if (!searchTerm) return true;
                     const search = searchTerm.toLowerCase();
                     return (
-                      (item.domain?.toLowerCase().includes(search)) ||
-                      (item.ip?.toLowerCase().includes(search)) ||
-                      (item.rdns?.toLowerCase().includes(search)) ||
-                      (item.issuer_name?.toLowerCase().includes(search))
+                      (item.domain?.toLowerCase() || '').includes(search) ||
+                      (item.ip?.toLowerCase() || '').includes(search) ||
+                      (item.rdns?.toLowerCase() || '').includes(search) ||
+                      (item.issuer_name?.toLowerCase() || '').includes(search)
                     );
                   })
                   .map((item, index) => {

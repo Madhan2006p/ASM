@@ -197,11 +197,11 @@ const getSeverityBadge = React.useCallback((severity) => {
                     if (!searchTerm) return true;
                     const s = searchTerm.toLowerCase();
                     return (
-                      item.vulnerability_id?.toLowerCase().includes(s) ||
-                      item.domain?.toLowerCase().includes(s) ||
-                      item.subdomain?.toLowerCase().includes(s) ||
-                      item.severity?.toLowerCase().includes(s) ||
-                      item.cve?.toLowerCase().includes(s)
+                      (item.vulnerability_id?.toLowerCase() || '').includes(s) ||
+                      (item.domain?.toLowerCase() || '').includes(s) ||
+                      (item.subdomain?.toLowerCase() || '').includes(s) ||
+                      (item.severity?.toLowerCase() || '').includes(s) ||
+                      (item.cve?.toLowerCase() || '').includes(s)
                     );
                   })
                   .map((item, index) => (

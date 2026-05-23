@@ -192,10 +192,10 @@ const DirectoriesPage = () => {
                     if (!searchTerm) return true;
                     const search = searchTerm.toLowerCase();
                     return (
-                      (item.url?.toLowerCase().includes(search)) ||
-                      (item.subdomain_name?.toLowerCase().includes(search)) ||
-                      (item.content_type?.toLowerCase().includes(search)) ||
-                      (item.content_details?.toLowerCase().includes(search))
+                      (item.url?.toLowerCase() || '').includes(search) ||
+                      (item.subdomain_name?.toLowerCase() || '').includes(search) ||
+                      (item.content_type?.toLowerCase() || '').includes(search) ||
+                      (item.content_details?.toLowerCase() || '').includes(search)
                     );
                   })
                   .map((item, index) => (
