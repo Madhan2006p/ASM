@@ -20,19 +20,18 @@ const OpenPortsPage = () => {
   const { orgId } = useParams();
   const token = localStorage.getItem('accessToken');
 
-  const PORT_NAMES = {
-    21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS',
-    80: 'HTTP', 110: 'POP3', 111: 'RPC', 135: 'MSRPC', 139: 'NetBIOS',
-    143: 'IMAP', 443: 'HTTPS', 445: 'SMB', 465: 'SMTPS', 587: 'SMTP',
-    993: 'IMAPS', 995: 'POP3S', 1433: 'MSSQL', 1521: 'Oracle',
-    2049: 'NFS', 3306: 'MySQL', 3389: 'RDP', 5432: 'PostgreSQL',
-    5900: 'VNC', 6379: 'Redis', 8080: 'HTTP-Proxy', 8443: 'HTTPS-Alt',
-    27017: 'MongoDB',
+  const normalizePort = (p) => {
+    if (p && typeof p === 'object') return p;
+    return { port: p, service: '', product: '', version: '' };
   };
 
-  const formatPort = (port) => {
-    const name = PORT_NAMES[port];
-    return name ? `${port} (${name})` : `${port}`;
+  const formatPort = (p) => {
+    const obj = normalizePort(p);
+    const parts = [`Port ${obj.port}`];
+    if (obj.service) parts.push(obj.service);
+    if (obj.product) parts.push(obj.product);
+    if (obj.version) parts.push(obj.version);
+    return parts.join(' - ');
   };
 
   // Export to Excel function
@@ -60,7 +59,7 @@ const OpenPortsPage = () => {
         worksheet.addRow({
           id: index + 1,
           domain: item.domain || '-',
-          ports: Array.isArray(item.ports) ? item.ports.map(formatPort).join(', ') : '-',
+          ports: Array.isArray(item.ports) ? item.ports.map(p => formatPort(normalizePort(p))).join(', ') : '-',
           created_at: item.created_at ? formatDateShort(item.created_at) : '-',
           updated_at: item.updated_at ? formatDateShort(item.updated_at) : '-'
         });
@@ -191,10 +190,12 @@ const OpenPortsPage = () => {
                     const search = searchTerm.toLowerCase();
                     return (
                       (item.domain?.toLowerCase().includes(search)) ||
-                      (item.ports && Array.isArray(item.ports) && item.ports.some(port => {
-                        const portStr = String(port).toLowerCase();
-                        const portName = (PORT_NAMES[port] || '').toLowerCase();
-                        return portStr.includes(search) || portName.includes(search);
+                      (item.ports && Array.isArray(item.ports) && item.ports.some(p => {
+                        const obj = normalizePort(p);
+                        return String(obj.port).includes(search) ||
+                               (obj.service || '').toLowerCase().includes(search) ||
+                               (obj.product || '').toLowerCase().includes(search) ||
+                               (obj.version || '').toLowerCase().includes(search);
                       }))
                     );
                   })

@@ -905,11 +905,18 @@ def run_full_scan(scan):
         saved_ports = 0
         for nmap_host in nmap_results:
             domain_name = nmap_host.get("hostname") or nmap_host.get("address", "")
-            port_nums = [p["port"] for p in nmap_host.get("ports", [])]
-            if port_nums:
+            port_objs = []
+            for p in nmap_host.get("ports", []):
+                port_objs.append({
+                    "port": p["port"],
+                    "service": p.get("service") or "",
+                    "product": p.get("product") or "",
+                    "version": p.get("version") or "",
+                })
+            if port_objs:
                 PortResult.objects.get_or_create(
                     scan=scan, domain=domain_name,
-                    defaults={"ports": port_nums, "org_id": org_id},
+                    defaults={"ports": port_objs, "org_id": org_id},
                 )
                 saved_ports += 1
         # Track scanned domains even when no open ports were found
