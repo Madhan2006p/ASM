@@ -56,7 +56,7 @@ TECH_TO_TAGS = {
     "cloudflare": {"cloudflare"},
     "iis": {"iis"},
     "microsoft iis": {"iis"},
-    "asp.net": {"asp", "microsoft"},
+    "asp.net": {"asp"},
     "java": {"java", "j2ee"},
     "openresty": {"openresty"},
     "caddy": {"caddy"},
