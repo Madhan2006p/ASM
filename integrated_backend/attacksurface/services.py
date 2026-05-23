@@ -1048,6 +1048,4 @@ def run_full_scan(scan):
     except Exception as e:
         scan.status = "failed"
         scan.save(update_fields=["status"])
-        import logging
-        logger = logging.getLogger(__name__)
         logger.exception("Scan failed: %s", e)
