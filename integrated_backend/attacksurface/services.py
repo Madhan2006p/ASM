@@ -678,19 +678,20 @@ def run_directory_scan(targets):
             outpath = f.name
         try:
             r = run_cmd(
-                [exe, "-u", target, "-O", "json", "-o", outpath,
-                 "--timeout", "5", "-q", "--disable-cli"],
-                timeout=60,
+                [exe, "-u", target, "-o", outpath, "--output-formats=json",
+                 "--timeout", "5", "-q"],
+                timeout=90, input_data="q\n",
             )
             with open(outpath) as f:
                 data = json.load(f)
             for entry in data.get("results", []):
-                results.append({
-                    "url": entry.get("url", ""),
-                    "status": entry.get("status", 0),
-                    "content_type": entry.get("content-type", ""),
-                    "content_length": entry.get("content-length", 0),
-                })
+                if entry.get("url"):
+                    results.append({
+                        "url": entry["url"],
+                        "status": entry.get("status", 0),
+                        "content_type": entry.get("contentType", ""),
+                        "content_length": entry.get("contentLength", 0),
+                    })
         except (json.JSONDecodeError, AttributeError, TypeError, FileNotFoundError):
             pass
         finally:
