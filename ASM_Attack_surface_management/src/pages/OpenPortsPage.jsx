@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Form, Spinner, Alert, Modal } from 'react-bootstrap';
+import { Table, Button, Form, Alert } from 'react-bootstrap';
 import { useNavigate, useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { FiArrowLeft, FiDownload } from 'react-icons/fi';
@@ -16,9 +16,6 @@ const OpenPortsPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [openPorts, setOpenPorts] = useState([]);
-  const [showModal, setShowModal] = useState(false);
-  const [modalTitle, setModalTitle] = useState('');
-  const [modalData, setModalData] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
   const token = localStorage.getItem('accessToken');
@@ -117,18 +114,6 @@ const OpenPortsPage = () => {
     setModalData([]);
   };
 
-  // Get port chip color based on port number
-  const getPortChipClass = (port) => {
-    const portStr = String(port);
-    if (portStr.includes('443') || portStr.includes('https')) {
-      return 'port-chip port-chip-https';
-    } else if (portStr.includes('80') || portStr.includes('http')) {
-      return 'port-chip port-chip-http';
-    } else {
-      return 'port-chip';
-    }
-  };
-
   // Removed full-page loading and error states to ensure the page opens instantly
 
   return (
@@ -196,9 +181,6 @@ const OpenPortsPage = () => {
                   })
                   .map((item, index) => {
                     const ports = Array.isArray(item.ports) ? item.ports : [];
-                    const maxVisible = 2;
-                    const portVisible = ports.slice(0, maxVisible);
-                    const portMore = ports.length - maxVisible;
                     
                     return (
                       <tr key={item.id}>
@@ -212,25 +194,8 @@ const OpenPortsPage = () => {
                             <span className="text-muted">-</span>
                           )}
                         </td>
-                        <td className="px-4">
-                          <div className="chips-container">
-                            {portVisible.map((port, i) => (
-                              <span key={i} className={getPortChipClass(port)} title={port} style={{ padding: '6px 12px', borderRadius: '20px', fontWeight: 500 }}>
-                                {port}
-                              </span>
-                            ))}
-                            {portMore > 0 && (
-                              <span 
-                                className="chip-more chip-clickable" 
-                                onClick={() => handleShowModal('Ports', ports)}
-                                title="Click to view all ports"
-                                style={{ padding: '6px 12px', borderRadius: '20px', fontWeight: 500 }}
-                              >
-                                +{portMore}
-                              </span>
-                            )}
-                            {ports.length === 0 && <span className="text-muted">-</span>}
-                          </div>
+                        <td className="px-4" style={{ color: 'var(--text-color)' }}>
+                          {ports.length > 0 ? ports.join(', ') : <span className="text-muted fst-italic">No open ports</span>}
                         </td>
                         <td className="px-4 date-cell">
                           {item.created_at ? (
@@ -259,31 +224,6 @@ const OpenPortsPage = () => {
             </tbody>
           </Table>
         </div>
-
-        {/* Ports Modal */}
-        <Modal show={showModal} onHide={handleCloseModal} centered>
-          <Modal.Header closeButton>
-            <Modal.Title>{modalTitle}</Modal.Title>
-          </Modal.Header>
-          <Modal.Body>
-            {modalData.length > 0 ? (
-              <div className="modal-items-container">
-                {modalData.map((item, index) => (
-                  <div key={index} className="modal-item">
-                    <span className={getPortChipClass(item)}>{item}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted">No items to display.</p>
-            )}
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={handleCloseModal}>
-              Close
-            </Button>
-          </Modal.Footer>
-        </Modal>
 
         {/* Empty State */}
         {openPorts.length === 0 && !loading && (

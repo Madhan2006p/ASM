@@ -912,10 +912,16 @@ def run_full_scan(scan):
                     defaults={"ports": port_nums, "org_id": org_id},
                 )
                 saved_ports += 1
-        if saved_ports > 0:
-            logger.info("Found open ports on %d hosts", saved_ports)
+        # Track scanned domains even when no open ports were found
+        if saved_ports == 0 and all_scan_targets:
+            for dom in all_scan_targets[:5]:
+                PortResult.objects.get_or_create(
+                    scan=scan, domain=dom,
+                    defaults={"ports": [], "org_id": org_id},
+                )
+            logger.info("No open ports found on any target; creating empty entries for %d domains", len(all_scan_targets[:5]))
         else:
-            logger.info("No open ports found by nmap")
+            logger.info("Found open ports on %d hosts", saved_ports)
         mark_phase(scan, "ports_done", 55)
 
         # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
