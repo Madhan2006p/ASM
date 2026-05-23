@@ -33,6 +33,118 @@ try:
 except ImportError:
     pass
 
+# Wappalyzer/header-detected tech names → nuclei tags for targeted scanning
+TECH_TO_TAGS = {
+    "nginx": {"nginx"},
+    "apache": {"apache"},
+    "apache http server": {"apache"},
+    "wordpress": {"wordpress", "wp"},
+    "php": {"php"},
+    "drupal": {"drupal"},
+    "joomla": {"joomla"},
+    "laravel": {"laravel"},
+    "django": {"django"},
+    "flask": {"flask"},
+    "express": {"express"},
+    "react": {"react"},
+    "angular": {"angular"},
+    "vue": {"vue"},
+    "vue.js": {"vue"},
+    "next.js": {"nextjs"},
+    "nuxt.js": {"nuxt"},
+    "jquery": {"jquery"},
+    "cloudflare": {"cloudflare"},
+    "iis": {"iis"},
+    "microsoft iis": {"iis"},
+    "asp.net": {"asp", "microsoft"},
+    "java": {"java", "j2ee"},
+    "openresty": {"openresty"},
+    "caddy": {"caddy"},
+    "gunicorn": {"gunicorn"},
+    "ruby on rails": {"rails"},
+    "shopify": {"shopify"},
+    "tomcat": {"tomcat", "java"},
+    "jenkins": {"jenkins"},
+    "gitlab": {"gitlab"},
+    "jira": {"jira"},
+    "confluence": {"confluence"},
+    "prestashop": {"prestashop"},
+    "magento": {"magento"},
+    "vbulletin": {"vbulletin"},
+    "thinkphp": {"thinkphp"},
+    "spring boot": {"springboot", "spring"},
+    "spring": {"spring", "springboot"},
+    "node.js": {"node"},
+    "python": {"python"},
+    "ruby": {"ruby"},
+    "fastjson": {"fastjson"},
+    "thinkcmf": {"thinkcmf"},
+    "seeyon": {"seeyon"},
+    "weaver": {"weaver"},
+    "yonyou": {"yonyou"},
+    "tongda": {"tongda"},
+    "landray": {"landray"},
+    "sangfor": {"sangfor"},
+    "huawei": {"huawei"},
+    "cisco": {"cisco"},
+    "vmware": {"vmware"},
+    "oracle": {"oracle"},
+    "ibm": {"ibm"},
+    "samsung": {"samsung"},
+    "zabbix": {"zabbix"},
+    "nagios": {"nagios"},
+    "phpmyadmin": {"phpmyadmin"},
+    "phpstudy": {"phpstudy"},
+    "grafana": {"grafana"},
+    "prometheus": {"prometheus"},
+    "kibana": {"kibana"},
+    "elasticsearch": {"elasticsearch"},
+    "redis": {"redis"},
+    "mongodb": {"mongo"},
+    "mysql": {"mysql"},
+    "mariadb": {"mariadb"},
+    "postgresql": {"postgresql"},
+    "rabbitmq": {"rabbitmq"},
+    "kafka": {"kafka"},
+    "docker": {"docker"},
+    "kubernetes": {"kubernetes"},
+    "rancher": {"rancher"},
+    "openshift": {"openshift"},
+    "ansible": {"ansible"},
+    "terraform": {"terraform"},
+    "vault": {"vault"},
+    "consul": {"consul"},
+    "etcd": {"etcd"},
+}
+
+
+def techs_to_nuclei_tags(tech_list):
+    """Map detected technology names to nuclei template tags."""
+    tags = set()
+    seen = set()
+    for tech in tech_list:
+        key = tech.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        # direct lookup
+        if key in TECH_TO_TAGS:
+            tags.update(TECH_TO_TAGS[key])
+        else:
+            # try partial match against known keys
+            matched = False
+            for known_key, known_tags in TECH_TO_TAGS.items():
+                if known_key in key or key in known_key:
+                    tags.update(known_tags)
+                    matched = True
+                    break
+            if not matched:
+                # use the tech name itself as a candidate tag
+                tags.add(key.replace(" ", "-").replace("_", "-"))
+    # always include generic useful tags
+    tags.update({"cve", "misconfiguration", "exposure", "default-login"})
+    return sorted(tags)
+
 
 def resolve_tool(tool_name, env_var, candidates=None):
     env_path = os.environ.get(env_var)
@@ -445,15 +557,18 @@ def parse_nmap_xml(xml_output):
 
 # ── Nuclei ───────────────────────────────────────────────────────────────────
 
-def run_nuclei(targets):
+def run_nuclei(targets, tech_tags=None):
     exe = resolve_tool("nuclei", "NUCLEI_PATH",
                        getattr(settings, "NUCLEI_PATH", None))
     if not exe or not targets:
         return []
     targets = targets[:5]
-    args = [exe, "-j", "-severity", "high,critical",
-            "-timeout", "5", "-retries", "1",
+    args = [exe, "-j", "-timeout", "5", "-retries", "1",
             "-rl", "30", "-bs", "10", "-c", "10"]
+    if tech_tags:
+        args.extend(["-tags", ",".join(tech_tags)])
+    else:
+        args.extend(["-severity", "high,critical"])
     if len(targets) == 1:
         args.extend(["-u", targets[0]])
     else:
@@ -461,6 +576,7 @@ def run_nuclei(targets):
             f.write("\n".join(targets))
             infile = f.name
         args.extend(["-l", infile])
+    logger.info("nuclei command: %s", " ".join(str(a) for a in args[:8]))
     r = run_cmd(args, timeout=120)
     if len(targets) > 1:
         Path(infile).unlink(missing_ok=True)
@@ -800,12 +916,18 @@ def run_full_scan(scan):
             )
         mark_phase(scan, "ports_done", 55)
 
-        # ── Phase 5: Vulnerability scanning ───────────────────────────────────
+        # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
         scan.progress = 60
         scan.save(update_fields=["progress"])
-        logger.info("Phase 5: vulnerability scanning targets=%s", live_urls[:5])
+        # Collect all detected technologies across hosts for targeted scanning
+        all_techs = set()
+        for host, techs in combined_tech_map.items():
+            all_techs.update(techs)
+        nuclei_tags = techs_to_nuclei_tags(all_techs) if all_techs else None
+        logger.info("Phase 5: vulnerability scanning targets=%s techs=%s tags=%s",
+                     live_urls[:5], sorted(all_techs), nuclei_tags)
         try:
-            nuclei_results = run_nuclei(live_urls[:5])
+            nuclei_results = run_nuclei(live_urls[:5], tech_tags=nuclei_tags)
         except Exception as e:
             logger.exception("nuclei phase failed: %s", e)
             nuclei_results = []
