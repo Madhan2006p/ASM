@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urlparse
@@ -576,7 +577,7 @@ def run_nuclei(targets, tech_tags=None):
             f.write("\n".join(targets))
             infile = f.name
         args.extend(["-l", infile])
-    logger.info("nuclei command: %s", " ".join(str(a) for a in args[:8]))
+    logger.info("nuclei command: %s", " ".join(str(a) for a in args))
     r = run_cmd(args, timeout=120)
     if len(targets) > 1:
         Path(infile).unlink(missing_ok=True)
@@ -600,8 +601,8 @@ def run_nuclei(targets, tech_tags=None):
             "target": matched,
             "host": data.get("host"),
             "timestamp": data.get("timestamp"),
-            "cve": ", ".join(info.get("classification", {}).get("cve-id", [])) if info.get("classification") else None,
-            "cwe": ", ".join(info.get("classification", {}).get("cwe-id", [])) if info.get("classification") else None,
+            "cve": ", ".join(info.get("classification", {}).get("cve-id", []) or []) if info.get("classification") else None,
+            "cwe": ", ".join(info.get("classification", {}).get("cwe-id", []) or []) if info.get("classification") else None,
         })
     return vulns
 
