@@ -1,0 +1,129 @@
+/* src/styles/EndpointsPage.css */
+
+/* Main container */
+.endpoints-container {
+  padding: 24px;
+  background-color: #f5f7fa;
+  min-height: calc(100vh - 112px); /* Adjust based on your header height */
+}
+
+/* Header section */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  background: #fff;
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* Table container */
+.endpoints-card {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  margin-bottom: 24px;
+}
+
+/* Details view */
+.endpoint-details {
+  margin-top: 24px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* Status tags */
+.ant-tag {
+  font-weight: 500;
+  padding: 0 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ant-tag-success {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #52c41a;
+}
+
+.ant-tag-warning {
+  background: #fffbe6;
+  border-color: #ffe58f;
+  color: #faad14;
+}
+
+.ant-tag-error {
+  background: #fff1f0;
+  border-color: #ffa39e;
+  color: #ff4d4f;
+}
+
+/* URL links */
+.url-link {
+  color: #1890ff;
+  transition: color 0.3s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.url-link:hover {
+  color: #40a9ff;
+  text-decoration: underline;
+}
+
+.url-link .anticon {
+  margin-right: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .endpoints-container {
+    padding: 16px;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+  }
+  
+  .ant-descriptions-item-label {
+    width: 120px !important;
+  }
+}
+
+/* Custom scrollbar for table */
+.ant-table-body::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.ant-table-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.ant-table-body::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Layout adjustments */
+.site-layout {
+  margin-left: 200px; /* Should match your sidebar width */
+  transition: all 0.2s;
+}
+
+/* If sidebar is collapsed */
+.site-layout.collapsed {
+  margin-left: 80px; /* Collapsed sidebar width */
+}
