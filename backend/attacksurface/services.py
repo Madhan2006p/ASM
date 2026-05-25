@@ -756,7 +756,7 @@ def run_testssl(targets):
         tmpf = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json")
         tmp_path = tmpf.name
         tmpf.close()
-        r = run_cmd([exe, "--quiet", "--warnings", "off", "--openssl-timeout", "10", "--socket-timeout", "10", "--jsonfile", tmp_path, target], timeout=90, env=testssl_env)
+        r = run_cmd([exe, "--quiet", "--warnings", "off", "--ssl-native", "--openssl-timeout", "5", "--socket-timeout", "5", "--jsonfile", tmp_path, target], timeout=60, env=testssl_env)
         parsed = []
         try:
             with open(tmp_path) as f:

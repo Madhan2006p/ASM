@@ -361,12 +361,17 @@ def run_ssl_check(self, scan_id):
 
     command = [
         testssl_path,
+        '--quiet',
+        '--warnings', 'off',
+        '--ssl-native',
+        '--openssl-timeout', '5',
+        '--socket-timeout', '5',
         '--jsonfile-pretty', str(output_file),
         target_domain
     ]
 
     try:
-        subprocess.run(command, capture_output=True, text=True, timeout=300, env=testssl_env)
+        subprocess.run(command, capture_output=True, text=True, timeout=120, env=testssl_env)
 
         if output_file.exists():
             with open(output_file, 'r', encoding='utf-8') as f:
