@@ -303,12 +303,76 @@ def run_subfinder(target):
     return sorted(found)
 
 
-# ── Live Host Probing (Python httpx) ─────────────────────────────────────────
+# ── Endpoint Discovery (gau — GetAllUrls) ────────────────────────────────────
 
-def probe_url(client, url):
-    """Probe a single URL and return structured data."""
+def run_gau(domains):
+    """Discover URLs using gau (GetAllUrls) from Wayback Machine, OTX & CommonCrawl.
+
+    Returns a list of dicts with the discovered URLs. Unlike active probing (httpx),
+    gau is passive — it fetches historical URLs from public archives so there are
+    no status codes or titles available from gau itself.
+    """
+    if not domains:
+        return []
+
+    exe = resolve_tool("gau", "GAU_PATH",
+                       getattr(settings, "GAU_PATH", None))
+    if not exe:
+        logger.warning("gau not found on system; skipping endpoint discovery")
+        return []
+
+    all_urls = []
+    seen = set()
+
+    # gau works best with the root domain and subdomains
+    targets = list(dict.fromkeys(domains))[:10]
+
+    for domain in targets:
+        r = run_cmd([exe, domain], timeout=120)
+        if r["returncode"] != 0:
+            logger.debug("gau returned non-zero for %s: %s", domain, r["stderr"][:200])
+            continue
+        for line in r["stdout"].splitlines():
+            url = line.strip()
+            if url and url not in seen:
+                seen.add(url)
+                all_urls.append({"url": url})
+
+    logger.info("gau discovered %d unique URLs across %d targets", len(all_urls), len(targets))
+    return all_urls
+
+
+def _run_httpx_probe(urls):
+    """Lightweight active probe of URLs using Python httpx.
+
+    Only used for technology detection (headers, titles, status codes) on a
+    subset of URLs discovered passively by gau. Not for endpoint discovery.
+    """
+    if not urls:
+        return []
+
+    results = []
     try:
-        resp = client.get(url, follow_redirects=True)
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+        with httpx.Client(verify=False, timeout=timeout) as client:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                fut_to_url = {pool.submit(_probe_single_url, client, u): u for u in urls}
+                for fut in as_completed(fut_to_url):
+                    try:
+                        data = fut.result()
+                        if data:
+                            results.append(data)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return results
+
+
+def _probe_single_url(client, url):
+    """Probe a single URL and return structured data for tech detection."""
+    try:
+        resp = client.get(url, follow_redirects=True, timeout=10.0)
     except Exception:
         return None
 
@@ -335,39 +399,6 @@ def probe_url(client, url):
         "headers": dict(resp.headers),
         "body_preview": resp.text[:2000],
     }
-
-
-def run_httpx(domains):
-    """Probe domains using Python httpx library (no external binary needed)."""
-    if not domains:
-        return []
-
-    targets = list(set(domains[:20]))
-    urls = []
-    for d in targets:
-        if d.startswith("http://") or d.startswith("https://"):
-            urls.append(d)
-        else:
-            urls.append(f"https://{d}")
-            urls.append(f"http://{d}")
-
-    results = []
-    try:
-        timeout = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
-        with httpx.Client(verify=False, timeout=timeout) as client:
-            with ThreadPoolExecutor(max_workers=10) as pool:
-                fut_to_url = {pool.submit(probe_url, client, u): u for u in urls}
-                for fut in as_completed(fut_to_url):
-                    try:
-                        data = fut.result()
-                        if data:
-                            results.append(data)
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-
-    return results
 
 
 # ── Wappalyzer Technology Detection ──────────────────────────────────────────
@@ -811,15 +842,21 @@ def run_full_scan(scan):
             )
         mark_phase(scan, "subdomains_done", 15)
 
-        # ── Phase 2: Live Host Probing (Python httpx) ─────────────────────────
-        httpx_results = run_httpx(subdomains)
+        # ── Phase 2: Endpoint Discovery (gau — passive) ────────────────────────
+        gau_results = run_gau(subdomains)
+        gau_urls = [g["url"] for g in gau_results if g.get("url")]
+        if not gau_urls:
+            gau_urls = [f"https://{d}" for d in subdomains[:5]]
+
+        # Probe a subset of discovered URLs with httpx for tech detection & status
+        probe_targets = list(dict.fromkeys(gau_urls))[:20]
+        httpx_results = _run_httpx_probe(probe_targets)
+
         live_urls = []
         for h in httpx_results:
             u = h.get("url", "")
             if u and h.get("status_code") and 200 <= h["status_code"] < 500:
                 live_urls.append(u)
-        if not live_urls:
-            live_urls = [f"https://{d}" for d in subdomains[:3]]
 
         # ── Phase 3: Technology Detection (Wappalyzer + header analysis) ──────
         wappalyzer_results = run_wappalyzer(subdomains[:10])
@@ -844,30 +881,33 @@ def run_full_scan(scan):
                 techs.update(header_techs[host])
             combined_tech_map[host] = sorted(techs) if techs else []
 
-        # Save endpoints
-        for data in httpx_results:
-            url = data.get("url", "")
+        # Save endpoints — all gau-discovered URLs
+        for gau_entry in gau_results:
+            url = gau_entry.get("url", "")
             if not url:
                 continue
             hn = urlparse(url).hostname or ""
-            techs = combined_tech_map.get(hn, data.get("tech", []))
+            # Check if we have httpx probe data for this URL
+            probed = next((h for h in httpx_results if h.get("url") == url), None)
+            techs = combined_tech_map.get(hn, [])
             EndpointResult.objects.get_or_create(
                 scan=scan, http_url=url,
                 defaults={
                     "subdomain_name": hn,
-                    "http_status": data.get("status_code"),
-                    "content_type": data.get("content_type"),
-                    "content_length": data.get("content_length"),
-                    "title": data.get("title", ""),
-                    "is_alive": True,
+                    "http_status": probed.get("status_code") if probed else None,
+                    "content_type": probed.get("content_type") if probed else "",
+                    "content_length": probed.get("content_length") if probed else 0,
+                    "title": probed.get("title", "") if probed else "",
+                    "is_alive": probed is not None and probed.get("status_code", 0) < 500,
                     "technologies": techs,
                     "org_id": org_id,
                 },
             )
-            SubdomainResult.objects.filter(scan=scan, domain=hn).update(
-                title=data.get("title", ""),
-                technologies=techs,
-            )
+            if probed and hn:
+                SubdomainResult.objects.filter(scan=scan, domain=hn).update(
+                    title=probed.get("title", ""),
+                    technologies=techs,
+                )
 
         # Save technology results
         for host, techs in combined_tech_map.items():
@@ -880,14 +920,18 @@ def run_full_scan(scan):
         mark_phase(scan, "endpoints_done", 35)
         mark_phase(scan, "technologies_done", 40)
 
+        # Collect hostnames from gau-discovered URLs + subdomains
         hostnames = []
-        for u in live_urls:
+        for url in gau_urls:
             try:
-                hostnames.append(urlparse(u).hostname or u)
+                hn = urlparse(url).hostname
+                if hn:
+                    hostnames.append(hn)
             except Exception:
-                hostnames.append(u)
+                pass
+        hostnames = list(dict.fromkeys(hostnames))
 
-        # Include all discovered subdomains for port scanning (not just HTTP-reachable ones)
+        # Include all discovered subdomains for port scanning
         all_scan_targets = list(dict.fromkeys(hostnames + subdomains))
 
         # ── Phase 4: Port scanning ───────────────────────────────────────────
