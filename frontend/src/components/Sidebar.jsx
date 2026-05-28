@@ -164,13 +164,7 @@ const Sidebar = () => {
             </Link>
           </li>
         )}
-        {hasPermission('scan_history') && (
-          <li>
-            <Link to="/scan-history" className={isActive('/scan-history')}>
-              <span><FiActivity size={18} /></span> Scan History
-            </Link>
-          </li>
-        )}
+
         {hasPermission('marketplace') && (
           <li>
             <Link to="/marketplace" className={isActive('/marketplace')}>

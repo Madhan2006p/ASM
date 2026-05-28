@@ -20,7 +20,6 @@ const DigitalFootprintsPage = () => {
   const [modalTitle, setModalTitle] = useState('');
   const [modalData, setModalData] = useState([]);
   const navigate = useNavigate();
-  const token = localStorage.getItem('accessToken');
   const [showAddModal, setShowAddModal] = useState(false);
   
   // Smart scan wizard states
@@ -132,17 +131,6 @@ const DigitalFootprintsPage = () => {
     return processedSubdomains.slice(0, visibleCount);
   }, [processedSubdomains, visibleCount]);
 
-  const getOrgId = () => {
-    try {
-      const u = JSON.parse(localStorage.getItem('user') || '{}');
-      const fromUser = u.organization_id;
-      const fromUrl = new URLSearchParams(window.location.search).get('org_id');
-      return String(fromUser || fromUrl || '1');
-    } catch {
-      return new URLSearchParams(window.location.search).get('org_id') || '1';
-    }
-  };
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -208,9 +196,21 @@ const DigitalFootprintsPage = () => {
   // Fetch subdomain data
   const fetchSubdomains = async () => {
     try {
-      const orgId = getOrgId();
-      const allResults = await fetchAllPages('subdomains', orgId);
-      setSubdomains(allResults.map(s => ({
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('subdomains', activeScanId);
+      
+      // Deduplicate subdomains by domain name
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = (item.domain || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setSubdomains(uniqueResults.map(s => ({
         ...s,
         dns_records: s.dns_records || [],
         vulnerabilities_count: s.vulnerabilities_count || 0,

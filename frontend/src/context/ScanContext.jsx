@@ -38,7 +38,7 @@ export const ScanProvider = ({ children }) => {
     prevPhasesRef.current = {};
 
     try {
-      const result = await triggerScan(target, "1");
+      const result = await triggerScan(target);
       const scanId = result.scan_id;
       try {
         localStorage.setItem("activeScanId", String(scanId));
@@ -64,6 +64,7 @@ export const ScanProvider = ({ children }) => {
             { field: "vulnerabilities_done", label: "Vulnerability Scanning", log: "[+] Vulnerability scanning complete" },
             { field: "ssl_done", label: "SSL Certificate Check", log: "[+] SSL check complete" },
             { field: "email_done", label: "Email Security Check", log: "[+] Email security check complete" },
+            { field: "directories_done", label: "Directory Scanning", log: "[+] Directory scanning complete" },
           ];
 
           const phasesDone = {};
@@ -84,7 +85,7 @@ export const ScanProvider = ({ children }) => {
             phase: status.status === "completed" ? "Scan completed!" : `Progress: ${progress}%`,
           }));
 
-          if (status.status === "completed" || progress >= 100 || attempts > 60) {
+          if (status.status === "completed" || progress >= 100 || attempts > 400) {
             clearInterval(interval);
             pollRef.current = null;
             addLog("[+] Scan completed successfully!", "success");
@@ -93,7 +94,7 @@ export const ScanProvider = ({ children }) => {
             return true;
           }
         } catch {
-          if (attempts > 60) {
+          if (attempts > 400) {
             clearInterval(interval);
             pollRef.current = null;
             addLog("[!] Scan polling timed out", "crit");
@@ -129,15 +130,16 @@ export const ScanProvider = ({ children }) => {
   }, []);
 
   const refreshPhaseData = useCallback(async (phasesDone) => {
-    const orgId = "1";
     const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
     const fetches = [];
-    if (phasesDone.subdomains_done) fetches.push(fetchAllPages("subdomains", orgId, activeScanId).catch(() => []));
-    if (phasesDone.endpoints_done) fetches.push(fetchAllPages("endpoints", orgId, activeScanId).catch(() => []));
-    if (phasesDone.ports_done) fetches.push(fetchAllPages("open-ports", orgId, activeScanId).catch(() => []));
-    if (phasesDone.technologies_done) fetches.push(fetchAllPages("technologies", orgId, activeScanId).catch(() => []));
-    if (phasesDone.vulnerabilities_done) fetches.push(fetchAllPages("vulnerabilities", orgId, activeScanId).catch(() => []));
-    if (phasesDone.ssl_done) fetches.push(fetchAllPages("ssl-certificates", orgId, activeScanId).catch(() => []));
+    if (phasesDone.subdomains_done) fetches.push(fetchAllPages("subdomains", activeScanId).catch(() => []));
+    if (phasesDone.endpoints_done) fetches.push(fetchAllPages("endpoints", activeScanId).catch(() => []));
+    if (phasesDone.ports_done) fetches.push(fetchAllPages("open-ports", activeScanId).catch(() => []));
+    if (phasesDone.technologies_done) fetches.push(fetchAllPages("technologies", activeScanId).catch(() => []));
+    if (phasesDone.vulnerabilities_done) fetches.push(fetchAllPages("vulnerabilities", activeScanId).catch(() => []));
+    if (phasesDone.ssl_done) fetches.push(fetchAllPages("ssl-certificates", activeScanId).catch(() => []));
+    if (phasesDone.email_done) fetches.push(fetchAllPages("email-security", activeScanId).catch(() => []));
+    if (phasesDone.directories_done) fetches.push(fetchAllPages("directories", activeScanId).catch(() => []));
     if (fetches.length > 0) {
       await Promise.all(fetches);
     }

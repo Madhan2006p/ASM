@@ -22,6 +22,7 @@ const FloatingTerminal = () => {
     vulnerabilities_done: "#f87171",
     ssl_done: "#34d399",
     email_done: "#fb923c",
+    directories_done: "#0ea5e9",
   };
 
   const phaseLabels = {
@@ -32,6 +33,7 @@ const FloatingTerminal = () => {
     vulnerabilities_done: "Vulns",
     ssl_done: "SSL",
     email_done: "Email",
+    directories_done: "Dirs",
   };
 
   if (minimized) {

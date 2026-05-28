@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Container, Row, Col, Card, Table, Badge, Modal, Button, Form, Spinner } from "react-bootstrap";
-import { FiPlusCircle, FiTrendingUp, FiShield, FiBell, FiEye, FiDownload, FiCheckCircle, FiAlertOctagon, FiAlertTriangle, FiAlertCircle } from "react-icons/fi";
+import { FiPlusCircle, FiTrendingUp, FiShield, FiBell, FiEye, FiDownload, FiCheckCircle, FiAlertOctagon, FiAlertTriangle, FiAlertCircle, FiMonitor } from "react-icons/fi";
 import Sidebar from "../components/Sidebar";
 import { useNavigate } from "react-router-dom";
 import * as jsPDFModule from "jspdf";
@@ -11,6 +11,16 @@ import { useScan } from "../context/ScanContext";
 const jsPDF = jsPDFModule.jsPDF || jsPDFModule.default?.jsPDF || jsPDFModule.default || jsPDFModule;
 
 const DashboardPage = () => {
+  // Helper to get the current user's org_id from localStorage
+  const getOrgId = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      return user?.organization_id || "1";
+    } catch {
+      return "1";
+    }
+  };
+
   const navigate = useNavigate();
   const { startScan: contextStartScan, scanState, refreshKey } = useScan();
 
@@ -117,22 +127,43 @@ const DashboardPage = () => {
     low: 0
   });
 
+  // Pending module states
+  const [emailSecurityResults, setEmailSecurityResults] = useState([]);
 
+  // Track the domain the user most recently scanned (loaded from localStorage on mount)
+  const [scannedDomain, setScannedDomain] = useState(() => {
+    try { return localStorage.getItem("lastScannedDomain") || ""; } catch { return ""; }
+  });
 
-  const loadData = useCallback(async (scanId = null) => {
+  const loadData = useCallback(async (scanId = null, domain = null) => {
     try {
-      const orgId = "1";
-      const [subList, vulnList, endpointsList, portList, techList, sslList, domainList] = await Promise.all([
-        fetchAllPages('subdomains', orgId, scanId).catch(() => []),
-        fetchAllPages('vulnerabilities', orgId, scanId).catch(() => []),
-        fetchAllPages('endpoints', orgId, scanId).catch(() => []),
-        fetchAllPages('open-ports', orgId, scanId).catch(() => []),
-        fetchAllPages('technologies', orgId, scanId).catch(() => []),
-        fetchAllPages('ssl-certificates', orgId, scanId).catch(() => []),
-        fetchMonitoredDomains(orgId).catch(() => []),
+      if (domain) {
+        setScannedDomain(domain);
+        try { localStorage.setItem("lastScannedDomain", domain); } catch {}
+      }
+      const [subList, vulnList, endpointsList, portList, techList, sslList, domainList, emailList] = await Promise.all([
+        fetchAllPages('subdomains', scanId).catch(() => []),
+        fetchAllPages('vulnerabilities', scanId).catch(() => []),
+        fetchAllPages('endpoints', scanId).catch(() => []),
+        fetchAllPages('open-ports', scanId).catch(() => []),
+        fetchAllPages('technologies', scanId).catch(() => []),
+        fetchAllPages('ssl-certificates', scanId).catch(() => []),
+        fetchMonitoredDomains().catch(() => []),
+        fetchAllPages('email-security', scanId).catch(() => []),
       ]);
 
-      const safeSubs = subList.map(s => ({
+      // Deduplicate subdomains by domain name
+      const seenSub = new Set();
+      const uniqueSubsList = [];
+      subList.forEach(item => {
+        const key = (item.domain || '').toLowerCase().trim();
+        if (key && !seenSub.has(key)) {
+          seenSub.add(key);
+          uniqueSubsList.push(item);
+        }
+      });
+
+      const safeSubs = uniqueSubsList.map(s => ({
         ...s,
         dns_records: s.dns_records || [],
         vulnerabilities_count: s.vulnerabilities_count || 0,
@@ -149,7 +180,18 @@ const DashboardPage = () => {
       });
       setUniqueDomains(Array.from(domainsSet));
 
-      const displayVulns = vulnList.map(v => ({
+      // Deduplicate vulnerabilities by title + severity
+      const seenVuln = new Set();
+      const uniqueVulnList = [];
+      vulnList.forEach(item => {
+        const key = `${item.finding || item.title || ''}|${item.severity || ''}`;
+        if (!seenVuln.has(key)) {
+          seenVuln.add(key);
+          uniqueVulnList.push(item);
+        }
+      });
+
+      const displayVulns = uniqueVulnList.map(v => ({
         id: v.id,
         title: v.finding || v.title || "Vulnerability",
         severity: (v.severity || "Low").charAt(0).toUpperCase() + (v.severity || "low").slice(1).toLowerCase(),
@@ -158,10 +200,10 @@ const DashboardPage = () => {
       }));
       setVulns(displayVulns);
 
-      const crit = vulnList.filter(v => v.severity?.toUpperCase() === "CRITICAL").length;
-      const high = vulnList.filter(v => v.severity?.toUpperCase() === "HIGH").length;
-      const med = vulnList.filter(v => v.severity?.toUpperCase() === "MEDIUM").length;
-      const low = vulnList.filter(v => v.severity?.toUpperCase() === "LOW").length;
+      const crit = uniqueVulnList.filter(v => v.severity?.toUpperCase() === "CRITICAL").length;
+      const high = uniqueVulnList.filter(v => v.severity?.toUpperCase() === "HIGH").length;
+      const med = uniqueVulnList.filter(v => v.severity?.toUpperCase() === "MEDIUM").length;
+      const low = uniqueVulnList.filter(v => v.severity?.toUpperCase() === "LOW").length;
 
       setStats([
         { title: "Critical Issues", count: crit || 0, color: "danger" },
@@ -172,10 +214,43 @@ const DashboardPage = () => {
 
       setVulnerabilityCounts({ critical: crit, high, medium: med, low });
 
-      setWebEntities(endpointsList);
-      setCertificates(sslList);
-      setPortCount(portList.length);
+      // Deduplicate endpoints by http_url
+      const seenEndpoint = new Set();
+      const uniqueEndpointsList = [];
+      endpointsList.forEach(item => {
+        const key = (item.http_url || '').toLowerCase().trim();
+        if (key && !seenEndpoint.has(key)) {
+          seenEndpoint.add(key);
+          uniqueEndpointsList.push(item);
+        }
+      });
+      setWebEntities(uniqueEndpointsList);
+
+      // Deduplicate certificates by domain + subdomain + ip + ssl_grade + issuer_name
+      const seenCert = new Set();
+      const uniqueCertList = [];
+      sslList.forEach(item => {
+        const key = `${item.domain || ''}|${item.subdomain || ''}|${item.ip || ''}|${item.ssl_grade || ''}|${item.issuer_name || ''}`;
+        if (!seenCert.has(key)) {
+          seenCert.add(key);
+          uniqueCertList.push(item);
+        }
+      });
+      setCertificates(uniqueCertList);
+
+      // Deduplicate ports by domain
+      const seenPort = new Set();
+      const uniquePortList = [];
+      portList.forEach(item => {
+        const key = (item.domain || '').toLowerCase().trim();
+        if (key && !seenPort.has(key)) {
+          seenPort.add(key);
+          uniquePortList.push(item);
+        }
+      });
+      setPortCount(uniquePortList.length);
       
+      setEmailSecurityResults(emailList);
       if (domainList && domainList.length > 0) {
         setMonitoredDomains(domainList);
       } else {
@@ -201,12 +276,19 @@ const DashboardPage = () => {
     const changed = Object.keys(phases).some(k => phases[k] && !prevPhasesRef.current[k]);
     if (changed) {
       prevPhasesRef.current = { ...phases };
-      loadData(scanState.scanId);
+      loadData(scanState.scanId, scanState.target);
     }
   }, [scanState.phasesDone, loadData, scanState.scanId]);
 
   useEffect(() => {
-    loadData();
+    // Only load dashboard data if there's an existing scan from a previous session
+    const storedScanId = localStorage.getItem("activeScanId");
+    const storedDomain = localStorage.getItem("lastScannedDomain");
+    if (storedScanId) {
+      if (storedDomain) setScannedDomain(storedDomain);
+      loadData(storedScanId, storedDomain);
+    }
+    // If no stored scan, show empty states until user scans a domain
   }, [loadData, refreshKey]);
 
   // Reset report generator states when modal opens/closes
@@ -244,7 +326,6 @@ const DashboardPage = () => {
     try {
       const result = await addMonitoredDomain({
         domain,
-        org_id: "1",
         morning_time: morningTime,
         night_time: nightTime,
         morning_enabled: true,
@@ -252,10 +333,9 @@ const DashboardPage = () => {
         auto_scan_on_add: true,
         scan_now: false,
       });
-      contextStartScan(domain);
+      await contextStartScan(domain);
       setActivities(prev => [`Domain added, scheduled, and scan started for ${domain}`, ...prev.slice(0, 9)]);
       setDomainInput("");
-      await loadData();
     } catch {
             setActivities(prev => [`Failed to add domain ${domain}. Server may be unavailable.`, ...prev.slice(0, 9)]);
     } finally {
@@ -276,7 +356,7 @@ const DashboardPage = () => {
 
     setDomainSaving(true);
     try {
-      contextStartScan(domain);
+      await contextStartScan(domain);
       setActivities(prev => [`Quick scan started for ${domain}`, ...prev.slice(0, 9)]);
       
       setDomainInput("");
@@ -319,15 +399,19 @@ const DashboardPage = () => {
     }
   };
 
-  const handleExistingDomainSubmit = (e) => {
+  const handleExistingDomainSubmit = async (e) => {
     e.preventDefault();
     if (!selectedExistingDomain) return;
     const targetSub = sanitizeSubdomainStr(combineSubdomainAndRoot(specificPrefix, selectedExistingDomain));
     setShowScanModal(false);
-    contextStartScan(targetSub);
+    try {
+      await contextStartScan(targetSub);
+    } catch {
+      setActivities(prev => [`Scan failed for ${targetSub}.`, ...prev.slice(0, 9)]);
+    }
   };
 
-  const handleNewDomainSubmit = (e) => {
+  const handleNewDomainSubmit = async (e) => {
     e.preventDefault();
     let root = newRootDomain.trim().toLowerCase();
     root = root.replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
@@ -340,7 +424,11 @@ const DashboardPage = () => {
       return;
     }
     setShowScanModal(false);
-    contextStartScan(targetSub);
+    try {
+      await contextStartScan(targetSub);
+    } catch {
+      setActivities(prev => [`Scan failed for ${targetSub}.`, ...prev.slice(0, 9)]);
+    }
   };
 
   // Synchronous PDF Compilation and Instant Save on direct user trigger
@@ -625,6 +713,94 @@ const DashboardPage = () => {
           </Col>
         </Row>
 
+        {/* Live Scan Progress Card */}
+        {scanState.isScanning && (
+          <Card className="border-0 mb-4 overflow-hidden" style={{
+            background: 'var(--header-bg)',
+            border: '1px solid var(--header-border)',
+            borderRadius: '16px',
+          }}>
+            <Card.Body className="p-4">
+              <div className="d-flex align-items-center justify-content-between mb-3">
+                <div className="d-flex align-items-center gap-2">
+                  <span style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: '#4ade80', display: 'inline-block',
+                    animation: 'pulse 1.5s infinite'
+                  }} />
+                  <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>
+                    Live Scan: {scanState.target}
+                  </h5>
+                  <Badge bg="primary" pill className="ms-2">
+                    {scanState.scanId && `#${scanState.scanId}`}
+                  </Badge>
+                </div>
+                <span className="fw-bold font-monospace" style={{ color: '#3b82f6', fontSize: '1.1rem' }}>
+                  {scanState.progress}%
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div style={{
+                height: 6, borderRadius: 3, background: '#1e293b',
+                marginBottom: '16px', overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%', width: `${scanState.progress}%`,
+                  background: 'linear-gradient(90deg, #3b82f6, #4ade80)',
+                  borderRadius: 3,
+                  transition: 'width 0.5s ease',
+                }} />
+              </div>
+
+              {/* Phase badges */}
+              <div className="d-flex gap-2 flex-wrap mb-3">
+                {[
+                  { field: 'subdomains_done', label: 'Subdomains', color: '#4ade80' },
+                  { field: 'endpoints_done', label: 'Endpoints', color: '#38bdf8' },
+                  { field: 'ports_done', label: 'Ports', color: '#facc15' },
+                  { field: 'technologies_done', label: 'Tech', color: '#a78bfa' },
+                  { field: 'vulnerabilities_done', label: 'Vulns', color: '#f87171' },
+                  { field: 'ssl_done', label: 'SSL', color: '#34d399' },
+                  { field: 'email_done', label: 'Email', color: '#fb923c' },
+                ].map(p => (
+                  <span
+                    key={p.field}
+                    style={{
+                      padding: '3px 10px', borderRadius: 6, fontSize: 11,
+                      fontWeight: 600, fontFamily: 'monospace',
+                      background: scanState.phasesDone[p.field] ? p.color : '#1e293b',
+                      color: scanState.phasesDone[p.field] ? '#0f172a' : '#64748b',
+                      transition: 'all 0.3s',
+                    }}
+                  >
+                    {scanState.phasesDone[p.field] ? '✓ ' : '○ '}{p.label}
+                  </span>
+                ))}
+              </div>
+
+              {/* Recent logs */}
+              <div style={{
+                background: '#0f172a', borderRadius: 8,
+                padding: '8px 12px', maxHeight: 100, overflowY: 'auto',
+                fontFamily: "'Courier New', Courier, monospace", fontSize: 11,
+              }}>
+                {scanState.logs.slice(-3).map((log, i) => {
+                  const colorMap = { sys: '#94a3b8', success: '#4ade80', warn: '#facc15', crit: '#f87171', info: '#38bdf8' };
+                  return (
+                    <div key={i} style={{ color: colorMap[log.type] || '#38bdf8', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                      <span style={{ color: '#64748b' }}>[{log.time}]</span> {log.text}
+                    </div>
+                  );
+                })}
+                {scanState.logs.length === 0 && (
+                  <div style={{ color: '#64748b' }}>Waiting for scan logs...</div>
+                )}
+              </div>
+            </Card.Body>
+          </Card>
+        )}
+
         {/* Vulnerability Severity Overview Cards */}
         <Row className="mb-4 g-3">
           <Col md={3} sm={6}>
@@ -682,8 +858,13 @@ const DashboardPage = () => {
         </Row>
 
 <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
-          <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
-            <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Domain Scan Control</h5>
+          <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0 d-flex align-items-center justify-content-between">
+            <div>
+              <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Domain Scan Control</h5>
+              {scannedDomain && (
+                <span className="text-muted small">Showing results for: <strong className="text-primary">{scannedDomain}</strong></span>
+              )}
+            </div>
             <span className="text-muted small">Add a domain to auto-scan immediately, schedule morning/night scans, or run a quick scan anytime.</span>
           </Card.Header>
           <Card.Body>
@@ -746,9 +927,9 @@ const DashboardPage = () => {
                           size="sm"
                           variant="outline-success"
                           disabled={domainSaving || scanState.isScanning}
-                          onClick={() => {
+                          onClick={async () => {
                             setDomainInput(item.domain);
-                            contextStartScan(item.domain);
+                            await contextStartScan(item.domain);
                             setActivities(prev => [`Quick scan started for ${item.domain}`, ...prev.slice(0, 9)]);
                           }}
                         >
@@ -769,7 +950,120 @@ const DashboardPage = () => {
         </Card>
 
         {/* Horizontal Scrollable Asset & Environment Explorer (9 Tabs) */}
-        <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+          {/* Email Security Results Widget */}
+        {emailSecurityResults.length > 0 && (
+          <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+            <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
+              <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>
+                <FiShield className="me-2" style={{ color: '#f97316' }} /> Email Security
+              </h5>
+              <span className="text-muted small">SPF, DMARC, DKIM & SMTP security posture for scanned domains.</span>
+            </Card.Header>
+            <Card.Body>
+              <div className="table-responsive">
+                <Table hover className="mb-0 align-middle">
+                  <thead>
+                    <tr>
+                      <th className="border-0">Domain</th>
+                      <th className="border-0">SPF</th>
+                      <th className="border-0">DMARC</th>
+                      <th className="border-0">DKIM</th>
+                      <th className="border-0">MX</th>
+                      <th className="border-0">SMTP StartTLS</th>
+                      <th className="border-0">Open Relay</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailSecurityResults.map(es => (
+                      <tr key={es.id}>
+                        <td className="fw-semibold" style={{ color: 'var(--text-color)' }}>{es.domain}</td>
+                        <td>
+                          {es.spf?.length > 0
+                            ? <Badge bg="success">Configured</Badge>
+                            : <Badge bg="danger">Missing</Badge>
+                          }
+                        </td>
+                        <td>
+                          {es.dmarc?.length > 0
+                            ? <Badge bg="success">Configured</Badge>
+                            : <Badge bg="danger">Missing</Badge>
+                          }
+                        </td>
+                        <td>
+                          {es.dkim_selector1?.length > 0 || es.dkim_default?.length > 0
+                            ? <Badge bg="success">Found</Badge>
+                            : <Badge bg="secondary">Not Found</Badge>
+                          }
+                        </td>
+                        <td className="text-muted">{es.mx?.length || 0} records</td>
+                        <td>
+                          {es.smtp_starttls?.starttls_supported
+                            ? <Badge bg="success">Supported</Badge>
+                            : <Badge bg="secondary">N/A</Badge>
+                          }
+                        </td>
+                        <td>
+                          {es.smtp_open_relay?.is_open_relay
+                            ? <Badge bg="danger">Vulnerable</Badge>
+                            : <Badge bg="success">Secure</Badge>
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            </Card.Body>
+          </Card>
+        )}
+
+        {/* Pending Modules: Surface Web, Dark Web, Incident Report */}
+        <Row className="mb-4 g-3">
+          <Col md={4}>
+            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
+                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(59, 130, 246, 0.1)' }}>
+                  <FiMonitor size={24} style={{ color: '#3b82f6' }} />
+                </div>
+                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Surface Web Monitoring</h6>
+                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
+                <p className="text-muted small mb-0">
+                  Continuous monitoring of surface web assets for brand abuse, phishing domains, and exposed credentials.
+                </p>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={4}>
+            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
+                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(139, 92, 246, 0.1)' }}>
+                  <FiAlertOctagon size={24} style={{ color: '#8b5cf6' }} />
+                </div>
+                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Dark Web Monitoring</h6>
+                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
+                <p className="text-muted small mb-0">
+                  Intelligence scanning of dark web forums and marketplaces for stolen credentials and leaked data.
+                </p>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={4}>
+            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
+                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(239, 68, 68, 0.1)' }}>
+                  <FiAlertTriangle size={24} style={{ color: '#ef4444' }} />
+                </div>
+                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Incident Report</h6>
+                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
+                <p className="text-muted small mb-0">
+                  Generate and manage security incident reports with detailed findings, timelines, and remediation steps.
+                </p>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+
+      <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
           <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
             <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color, #000000)' }}>Asset &amp; Environment Explorer</h5>
             <span className="text-muted small">Explore your discovered cloud assets, software inventories, SSL profiles, and risk trends.</span>

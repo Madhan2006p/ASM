@@ -45,6 +45,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'authentication.middleware.OrgAccessMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -214,8 +215,8 @@ def resolve_absolute_tool_path(tool_name, env_var=None):
                 return [sys.executable, '-m', 'inql']
             return str(script_path)
 
-    # Fallback to the name itself
-    return tool_name
+    # Tool not found anywhere — return None (callers must handle)
+    return None
 
 DIRSEARCH_PATH = resolve_absolute_tool_path('dirsearch')
 ARJUN_PATH = resolve_absolute_tool_path('arjun')

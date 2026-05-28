@@ -11,15 +11,13 @@ import { fetchAllPages } from '../utils/api';
 import { useScan } from '../context/ScanContext';
 
 const DirectoriesPage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [directories, setDirectories] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -77,9 +75,21 @@ const DirectoriesPage = () => {
   // Fetch directories data
   const fetchDirectories = async () => {
     try {
-      const organizationId = orgId || '1';
-      const allResults = await fetchAllPages('directories', organizationId);
-      setDirectories(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('directories', activeScanId);
+      
+      // Deduplicate directories by url
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = (item.url || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setDirectories(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch directories. Please try again.');
@@ -90,7 +100,7 @@ const DirectoriesPage = () => {
 
   useEffect(() => {
     fetchDirectories();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   // Get status badge
   const getStatusBadge = (status) => {
@@ -143,7 +153,7 @@ const DirectoriesPage = () => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">Directories {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">Directories</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

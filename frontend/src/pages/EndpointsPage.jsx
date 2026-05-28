@@ -172,7 +172,7 @@ const getSubdomainTree = (endpointsList) => {
 };
 
 const EndpointsPage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -184,8 +184,6 @@ const EndpointsPage = () => {
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'tree'
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -249,9 +247,21 @@ const EndpointsPage = () => {
   // Fetch endpoints data
   const fetchEndpoints = async () => {
     try {
-      const organizationId = orgId || '1';
-      const allResults = await fetchAllPages('endpoints', organizationId);
-      setEndpoints(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('endpoints', activeScanId);
+      
+      // Deduplicate endpoints by http_url
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = (item.http_url || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setEndpoints(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch endpoints. Please try again.');
@@ -262,7 +272,7 @@ const EndpointsPage = () => {
 
   useEffect(() => {
     fetchEndpoints();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   useEffect(() => {
     const styleId = "endpoint-tree-styles";
@@ -385,7 +395,7 @@ const EndpointsPage = () => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">Endpoints {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">Endpoints</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

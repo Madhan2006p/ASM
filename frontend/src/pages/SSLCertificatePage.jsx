@@ -14,15 +14,13 @@ import { useScan } from '../context/ScanContext';
 const saveAs = fileSaver.saveAs || fileSaver;
 
 const SSLCertificatePage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [sslCertificates, setSslCertificates] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -89,17 +87,21 @@ const SSLCertificatePage = () => {
   // Fetch SSL certificates data
   const fetchSSLCertificates = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      let userOrgId = null;
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          userOrgId = user.organization_id || user.organization?.id;
-        } catch (e) {}
-      }
-      const organizationId = orgId || userOrgId || '1';
-      const allResults = await fetchAllPages('ssl-certificates', organizationId);
-      setSslCertificates(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('ssl-certificates', activeScanId);
+      
+      // Deduplicate the certificates by domain + subdomain + ip + ssl_grade + issuer_name
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = `${item.domain || ''}|${item.subdomain || ''}|${item.ip || ''}|${item.ssl_grade || ''}|${item.issuer_name || ''}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setSslCertificates(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch SSL certificates. Please try again.');
@@ -110,7 +112,7 @@ const SSLCertificatePage = () => {
 
   useEffect(() => {
     fetchSSLCertificates();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   // Format date in exact format
   const formatExactTimestamp = (dateString) => {
@@ -266,7 +268,7 @@ const getUrgencyLabel = (days) => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">SSL Certificate {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">SSL Certificate</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

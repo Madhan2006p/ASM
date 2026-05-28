@@ -1,7 +1,9 @@
 from django.urls import path
 
 from .views import (
+    AdminCreateUserView,
     CheckAuthView,
+    ListOrganizationUsersView,
     LoginView,
     LogoutView,
     OrganizationDetailView,
@@ -21,4 +23,7 @@ urlpatterns = [
     path("organizations/", OrganizationListView.as_view(), name="org-list"),
     path("organizations/<str:org_id>/", OrganizationDetailView.as_view(), name="org-detail"),
     path("organizations/<str:org_id>/members/", OrganizationMembersView.as_view(), name="org-members"),
+    # Admin: user management
+    path("admin/create-user/", AdminCreateUserView.as_view(), name="admin-create-user"),
+    path("admin/organizations/<str:org_id>/users/", ListOrganizationUsersView.as_view(), name="admin-org-users"),
 ]

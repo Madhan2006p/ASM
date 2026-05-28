@@ -11,14 +11,13 @@ import { fetchAllPages } from '../utils/api';
 import { useScan } from '../context/ScanContext';
 
 const OpenPortsPage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [openPorts, setOpenPorts] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
 
   const normalizePort = (p) => {
     if (p && typeof p === 'object') return p;
@@ -87,9 +86,21 @@ const OpenPortsPage = () => {
   // Fetch open ports data
   const fetchOpenPorts = async () => {
     try {
-      const organizationId = orgId || '1';
-      const allResults = await fetchAllPages('open-ports', organizationId);
-      setOpenPorts(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('open-ports', activeScanId);
+      
+      // Deduplicate open ports by domain
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = (item.domain || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setOpenPorts(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch open ports. Please try again.');
@@ -100,7 +111,7 @@ const OpenPortsPage = () => {
 
   useEffect(() => {
     fetchOpenPorts();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   // Format date in exact timestamp format (locale representation)
   const formatExactTimestamp = (dateString) => {
@@ -141,7 +152,7 @@ const OpenPortsPage = () => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">Open Ports {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">Open Ports</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

@@ -15,7 +15,6 @@ from .vulnerability_scanner import (
 
 from .directory_scanner import (
     run_directory_scan,
-    run_dirsearch_binary,
     run_python_directory_scanner,
 )
 

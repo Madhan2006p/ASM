@@ -53,11 +53,12 @@ class AttackSurfaceBaseView(ListAPIView):
             self.request.user, self.required_module
         ):
             return self.model.objects.none()
-        qs = self.model.objects.filter(org_id=self.get_org_id())
+        
         scan_id = self.request.query_params.get("scan")
-        if scan_id:
-            qs = qs.filter(scan_id=scan_id)
-        return qs
+        if not scan_id:
+            return self.model.objects.none()
+            
+        return self.model.objects.filter(org_id=self.get_org_id(), scan_id=scan_id)
 
 
 class SubdomainListView(AttackSurfaceBaseView):
@@ -347,15 +348,22 @@ class ToolsHealthView(APIView):
                 }
 
         # Check Wappalyzer Python Module
-        try:
-            import Wappalyzer
+        wappalyzer_available = False
+        for mod_name in ['wappalyzer', 'Wappalyzer']:
+            try:
+                __import__(mod_name)
+                wappalyzer_available = True
+                break
+            except ImportError:
+                continue
+        if wappalyzer_available:
             wappalyzer_health = {
                 "status": "AVAILABLE",
                 "path": "Python Packages (Wappalyzer)",
                 "version": "python-Wappalyzer (Latest)",
                 "error": None
             }
-        except ImportError:
+        else:
             wappalyzer_health = {
                 "status": "MISSING",
                 "path": "python-Wappalyzer",
@@ -365,24 +373,26 @@ class ToolsHealthView(APIView):
 
         # Master mapping of tools to check
         tools_list = [
-            ("subfinder", getattr(settings, "SUBFINDER_PATH", "subfinder"), ["-version"]),
-            ("assetfinder", getattr(settings, "ASSETFINDER_PATH", "assetfinder"), ["-h"]),
-            ("naabu", getattr(settings, "NAABU_PATH", "naabu"), ["-version"]),
-            ("httpx", getattr(settings, "HTTPX_PATH", "httpx"), ["-version"]),
-            ("nmap", getattr(settings, "NMAP_PATH", "nmap"), ["-V"]),
-            ("nuclei", getattr(settings, "NUCLEI_PATH", "nuclei"), ["-version"]),
-            ("testssl.sh", getattr(settings, "TESTSSL_PATH", "testssl.sh"), ["--help"]),
-            ("dirsearch", getattr(settings, "DIRSEARCH_PATH", "dirsearch"), ["--version"]),
-            ("arjun", getattr(settings, "ARJUN_PATH", "arjun"), ["--help"]),
-            ("inql", getattr(settings, "INQL_PATH", "inql"), ["--help"]),
-            ("gau", getattr(settings, "GAU_PATH", "gau"), ["--version"]),
-            ("waybackurls", getattr(settings, "WAYBACKURLS_PATH", "waybackurls"), ["-h"]),
-            ("grpcurl", getattr(settings, "GRPCURL_PATH", "grpcurl"), ["-help"]),
+            ("subfinder", getattr(settings, "SUBFINDER_PATH", None) or "subfinder", ["-version"]),
+            ("assetfinder", getattr(settings, "ASSETFINDER_PATH", None) or "assetfinder", ["-h"]),
+            ("findomain", getattr(settings, "FINDOMAIN_PATH", None) or "findomain", ["--version"]),
+            ("naabu", getattr(settings, "NAABU_PATH", None) or "naabu", ["-version"]),
+            ("httpx", getattr(settings, "HTTPX_PATH", None) or "httpx", ["-version"]),
+            ("nmap", getattr(settings, "NMAP_PATH", None) or "nmap", ["-V"]),
+            ("nuclei", getattr(settings, "NUCLEI_PATH", None) or "nuclei", ["-version"]),
+            ("testssl.sh", getattr(settings, "TESTSSL_PATH", None) or "testssl.sh", ["--help"]),
+            ("dirsearch", getattr(settings, "DIRSEARCH_PATH", None) or "dirsearch", ["--version"]),
+            ("wapiti", getattr(settings, "WAPITI_PATH", None) or "wapiti", ["--version"]),
+            ("arjun", getattr(settings, "ARJUN_PATH", None) or "arjun", ["--help"]),
+            ("inql", getattr(settings, "INQL_PATH", None) or "inql", ["--help"]),
+            ("gau", getattr(settings, "GAU_PATH", None) or "gau", ["--version"]),
+            ("waybackurls", getattr(settings, "WAYBACKURLS_PATH", None) or "waybackurls", ["-h"]),
+            ("grpcurl", getattr(settings, "GRPCURL_PATH", None) or "grpcurl", ["-help"]),
         ]
 
         results = []
 
-        # 1. Add Wappalyzer
+        # 1. Add built-in scanners (whatweb, wappalyzer - Python-based, no binary needed)
         results.append({
             "key": "Wappalyzer",
             "name": "Wappalyzer",
@@ -390,6 +400,36 @@ class ToolsHealthView(APIView):
             "estimate": "10 seconds",
             **wappalyzer_health
         })
+
+        # WhatWeb is a built-in pure-Python scanner - check if module is importable
+        try:
+            # Try importing the whatweb scanner module to verify it's functional
+            import importlib
+            importlib.import_module('reconnaissance.services.whatweb_scanner')
+            whatweb_health = {
+                "status": "AVAILABLE",
+                "path": "Built-in Python Scanner",
+                "version": "Integrated (Pure Python)",
+                "error": None
+            }
+        except Exception as e:
+            whatweb_health = {
+                "status": "ERROR",
+                "path": "reconnaissance.services.whatweb_scanner",
+                "version": None,
+                "error": str(e)
+            }
+
+        results.append({
+            "key": "WhatWeb",
+            "name": "WhatWeb",
+            "category": "Technology Detection",
+            "estimate": "15 seconds",
+            **whatweb_health
+        })
+
+        # WhatWeb is built-in, no binary check needed. Skip binary tools_list entry.
+        tools_list = [t for t in tools_list if t[0] != 'whatweb']
 
         # 2. Add others
         friendly_names = {
@@ -404,7 +444,10 @@ class ToolsHealthView(APIView):
             "arjun": ("Arjun Finder", "HTTP Parameter Discovery", "20 seconds"),
             "inql": ("InQL GraphQL Auditor", "GraphQL Security Analysis", "25 seconds"),
             "gau": ("GAU (GetAllUrls)", "Historical Endpoint Scraping", "15 seconds"),
+            "findomain": ("Findomain", "Subdomain Monitoring", "10 seconds"),
+            "wapiti": ("Wapiti", "Web Vulnerability Scanner", "60 seconds"),
             "waybackurls": ("Waybackurls", "Wayback Archive Crawling", "12 seconds"),
+            "whatweb": ("WhatWeb", "Technology Detection", "15 seconds"),
             "grpcurl": ("gRPCurl Lister", "gRPC Service Introspection", "15 seconds"),
         }
 

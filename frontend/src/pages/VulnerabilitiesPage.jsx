@@ -17,15 +17,13 @@ const getExcelJS = () => {
 };
 
 const VulnerabilitiesPage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [vulnerabilities, setVulnerabilities] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -81,9 +79,21 @@ const VulnerabilitiesPage = () => {
   // Fetch vulnerabilities data
   const fetchVulnerabilities = async () => {
     try {
-      const organizationId = orgId || '1';
-      const allResults = await fetchAllPages('vulnerabilities', organizationId);
-      setVulnerabilities(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('vulnerabilities', activeScanId);
+      
+      // Deduplicate vulnerabilities by vulnerability_id + subdomain + finding
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = `${item.vulnerability_id || ''}|${item.subdomain || ''}|${item.finding || ''}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setVulnerabilities(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch vulnerabilities. Please try again.');
@@ -94,7 +104,7 @@ const VulnerabilitiesPage = () => {
 
   useEffect(() => {
     fetchVulnerabilities();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   // Format date
   const formatExactTimestamp = (dateString) => {
@@ -149,7 +159,7 @@ const getSeverityBadge = React.useCallback((severity) => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">Vulnerabilities {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">Vulnerabilities</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

@@ -14,7 +14,7 @@ import { useScan } from '../context/ScanContext';
 const saveAs = fileSaver.saveAs || fileSaver;
 
 const TechnologiesPage = () => {
-  const { refreshKey } = useScan();
+  const { refreshKey, scanState } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -24,8 +24,6 @@ const TechnologiesPage = () => {
   const [modalData, setModalData] = useState([]);
   const navigate = useNavigate();
   const { orgId } = useParams();
-  const token = localStorage.getItem('accessToken');
-
   // Export to Excel function
   const exportToExcel = async () => {
     try {
@@ -74,9 +72,21 @@ const TechnologiesPage = () => {
   // Fetch technologies data
   const fetchTechnologies = async () => {
     try {
-      const organizationId = orgId || '1';
-      const allResults = await fetchAllPages('technologies', organizationId);
-      setTechnologies(allResults);
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      const allResults = await fetchAllPages('technologies', activeScanId);
+      
+      // Deduplicate technologies by domain
+      const seen = new Set();
+      const uniqueResults = [];
+      allResults.forEach(item => {
+        const key = (item.domain || '').toLowerCase().trim();
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueResults.push(item);
+        }
+      });
+
+      setTechnologies(uniqueResults);
       setError(null);
     } catch (err) {
       setError('Failed to fetch technologies. Please try again.');
@@ -87,7 +97,7 @@ const TechnologiesPage = () => {
 
   useEffect(() => {
     fetchTechnologies();
-  }, [orgId, refreshKey]);
+  }, [refreshKey]);
 
   // Render exact timestamp as a two-line block to avoid horizontal collision
   const renderExactTimestamp = (dateString) => {
@@ -134,7 +144,7 @@ const TechnologiesPage = () => {
             <Button variant="outline-secondary" size="sm" onClick={() => navigate(-1)} className="rounded-circle px-2">
               <FiArrowLeft size={16} />
             </Button>
-            <h2 className="mb-0">Technologies {orgId && `(Organization: ${orgId})`}</h2>
+            <h2 className="mb-0">Technologies</h2>
           </div>
           <div>
             <Button variant="outline-primary" className="me-2" onClick={() => {

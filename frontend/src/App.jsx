@@ -13,7 +13,6 @@ import OpenPortsPage from "./pages/OpenPortsPage";
 import TechnologiesPage from "./pages/TechnologiesPage";
 import SSLCertificatePage from "./pages/SSLCertificatePage";
 import VulnerabilitiesPage from "./pages/VulnerabilitiesPage";
-import ScanHistoryPage from "./pages/ScanHistoryPage";
 import ScanDetailPage from "./pages/ScanDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import MarketplacePage from "./pages/MarketplacePage";
@@ -23,17 +22,17 @@ import Header from "./components/Header";
 const MODULE_ACCESS = {
   admin: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates', '/scan-history',
+    '/technologies', '/vulnerabilities', '/ssl-certificates',
     '/scan-detail', '/marketplace', '/settings',
   ],
   member: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates', '/scan-history',
+    '/technologies', '/vulnerabilities', '/ssl-certificates',
     '/scan-detail', '/marketplace', '/settings',
   ],
   viewer: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates', '/scan-history',
+    '/technologies', '/vulnerabilities', '/ssl-certificates',
     '/settings',
   ],
 };
@@ -131,16 +130,12 @@ function App() {
             <Route path="/settings" element={
               <ProtectedRoute><SettingsPage /></ProtectedRoute>
             } />
-            <Route path="/scan-history" element={
-              <ProtectedRoute><ScanHistoryPage /></ProtectedRoute>
-            } />
             <Route path="/scan-detail/:id" element={
               <ProtectedRoute><ScanDetailPage /></ProtectedRoute>
             } />
             <Route path="/marketplace" element={
               <ProtectedRoute><MarketplacePage /></ProtectedRoute>
             } />
-            
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

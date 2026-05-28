@@ -1,8 +1,10 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+
 class Target(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
+    org_id = models.CharField(max_length=50, db_index=True, default="1")
     domain = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True)
     added_on = models.DateTimeField(auto_now_add=True)
@@ -10,6 +12,11 @@ class Target(models.Model):
 
     def __str__(self):
         return self.domain
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["org_id", "domain"]),
+        ]
 
 class Endpoint(models.Model):
     target = models.ForeignKey(Target, related_name='endpoints', on_delete=models.CASCADE)
