@@ -30,13 +30,6 @@ const DigitalFootprintsPage = () => {
   const [newRootDomain, setNewRootDomain] = useState("");
   const [specificPrefix, setSpecificPrefix] = useState("");
 
-  // Scan simulation states
-  const [scanTargetName, setScanTargetName] = useState("");
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scanPhase, setScanPhase] = useState("");
-  const [scanPhaseIndex, setScanPhaseIndex] = useState(0);
-  const [isScanning, setIsScanning] = useState(false);
-  const [activeScan, setActiveScan] = useState(null);
   const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'info', onConfirm: null });
   const { startScan: contextStartScan, scanState, refreshKey } = useScan();
 
@@ -99,7 +92,6 @@ const DigitalFootprintsPage = () => {
            isApex,
            statusInfo,
            ipCount: item.ip && Array.isArray(item.ip) ? item.ip.length : 0,
-           dnsCount: item.dns_records ? item.dns_records.length : 0,
            vulnCount: item.vulnerabilities_count || 0
          }
        };
@@ -239,19 +231,6 @@ const DigitalFootprintsPage = () => {
     fetchSubdomains();
   }, [refreshKey]);
 
-  const runSimulatedScan = (target) => {
-    setIsScanning(true);
-    setScanTargetName(target);
-    setActiveScan(target);
-    contextStartScan(target);
-  };
-
-  useEffect(() => {
-    if (!scanState.isScanning && !isScanning && scanState.target && !scanState.scanId) {
-      return;
-    }
-  }, [scanState.isScanning]);
-
   const handleWizardSubmit = (e) => {
     e.preventDefault();
     if (wizardStep === "input_subdomain") {
@@ -260,49 +239,36 @@ const DigitalFootprintsPage = () => {
       rawVal = sanitizeSubdomainStr(rawVal);
       if (!rawVal) return;
 
-      const existing = subdomains.find(s => s.domain === rawVal);
-      if (existing) {
-        setScanTargetName(rawVal);
-        setWizardStep("confirm_rescan");
-      } else {
-        setInputSubdomainName(rawVal);
-        
-        // Auto-extract root domain and prefix
-        const parts = rawVal.split('.');
-        if (parts.length > 2) {
-          const root = parts.slice(-2).join('.');
-          const prefix = parts.slice(0, -2).join('.');
-          setNewRootDomain(root);
-          setSpecificPrefix(prefix);
-          if (uniqueDomains.includes(root)) {
-            setSelectedExistingDomain(root);
-          } else {
-            setSelectedExistingDomain("");
-          }
+      setInputSubdomainName(rawVal);
+      
+      // Auto-extract root domain and prefix
+      const parts = rawVal.split('.');
+      if (parts.length > 2) {
+        const root = parts.slice(-2).join('.');
+        const prefix = parts.slice(0, -2).join('.');
+        setNewRootDomain(root);
+        setSpecificPrefix(prefix);
+        if (uniqueDomains.includes(root)) {
+          setSelectedExistingDomain(root);
         } else {
-          setNewRootDomain(rawVal);
-          setSpecificPrefix("");
           setSelectedExistingDomain("");
         }
-
-        setWizardStep("ask_domain_type");
+      } else {
+        setNewRootDomain(rawVal);
+        setSpecificPrefix("");
+        setSelectedExistingDomain("");
       }
+
+      setWizardStep("ask_domain_type");
     }
   };
 
   const handleExistingDomainSubmit = (e) => {
     e.preventDefault();
     if (!selectedExistingDomain) return;
-    
     const targetSub = sanitizeSubdomainStr(combineSubdomainAndRoot(specificPrefix, selectedExistingDomain));
-
-    const existing = subdomains.find(s => s.domain === targetSub);
-    if (existing) {
-      setScanTargetName(targetSub);
-      setWizardStep("confirm_rescan");
-    } else {
-      runSimulatedScan(targetSub);
-    }
+    setShowAddModal(false);
+    contextStartScan(targetSub);
   };
 
   const handleNewDomainSubmit = (e) => {
@@ -310,16 +276,9 @@ const DigitalFootprintsPage = () => {
     let root = newRootDomain.trim().toLowerCase();
     root = root.replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
     if (!root) return;
-    
     const targetSub = sanitizeSubdomainStr(combineSubdomainAndRoot(specificPrefix, root));
-
-    const existing = subdomains.find(s => s.domain === targetSub);
-    if (existing) {
-      setScanTargetName(targetSub);
-      setWizardStep("confirm_rescan");
-    } else {
-      runSimulatedScan(targetSub);
-    }
+    setShowAddModal(false);
+    contextStartScan(targetSub);
   };
 
   const parseArrayData = (data) => {
@@ -425,25 +384,25 @@ const DigitalFootprintsPage = () => {
         </div>
 
         {/* Real-time Scanning Progress Widget */}
-        {activeScan && (
+        {scanState.isScanning && (
           <Card className="mb-4 border-primary" style={{ background: 'rgba(59, 130, 246, 0.05)', borderRadius: '16px' }}>
             <Card.Body className="p-4">
               <div className="d-flex justify-content-between align-items-center mb-2">
                 <span className="fw-semibold text-primary">
                   <Spinner animation="grow" size="sm" className="me-2" variant="primary" />
-                  Scanner active on: <span className="text-decoration-underline">{activeScan}</span>
+                  Scanner active on: <span className="text-decoration-underline">{scanState.target}</span>
                 </span>
-                <span className="fw-semibold text-primary">{scanProgress}%</span>
+                <span className="fw-semibold text-primary">{scanState.progress}%</span>
               </div>
               <div className="progress mb-2" style={{ height: '8px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '4px' }}>
                 <div 
                   className="progress-bar progress-bar-striped progress-bar-animated" 
                   role="progressbar" 
-                  style={{ width: `${scanProgress}%`, borderRadius: '4px' }}
+                  style={{ width: `${scanState.progress}%`, borderRadius: '4px' }}
                 ></div>
               </div>
               <div className="text-muted small">
-                <strong>Current Field:</strong> {scanPhase}
+                <strong>Current Field:</strong> {scanState.phase}
               </div>
             </Card.Body>
           </Card>
@@ -471,8 +430,6 @@ const DigitalFootprintsPage = () => {
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Domain / Asset</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Scan Status</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Hosted</th>
-                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>IP Count</th>
-                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>DNS Count</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Updated At</th>
               </tr>
             </thead>
@@ -558,21 +515,7 @@ const DigitalFootprintsPage = () => {
                            {isHosted ? 'Yes' : 'No'}
                          </span>
                        </td>
-                       <td className="px-4 py-3" style={{ color: 'var(--text-color)' }}>
-                         <div className="d-flex align-items-center">
-                           <div className="rounded-circle d-flex align-items-center justify-content-center me-2" style={{ width: '28px', height: '28px', background: 'rgba(59, 130, 246, 0.1)' }}>
-                             <span style={{ color: '#3B82F6', fontWeight: 600, fontSize: '0.85rem' }}>{_computed.ipCount}</span>
-                           </div>
-                         </div>
-                       </td>
-                       <td className="px-4 py-3" style={{ color: 'var(--text-color)' }}>
-                         <div className="d-flex align-items-center">
-                           <div className="rounded-circle d-flex align-items-center justify-content-center me-2" style={{ width: '28px', height: '28px', background: 'rgba(139, 92, 246, 0.1)' }}>
-                             <span style={{ color: '#8B5CF6', fontWeight: 600, fontSize: '0.85rem' }}>{_computed.dnsCount}</span>
-                           </div>
-                         </div>
-                       </td>
-                        <td className="px-4 py-3 date-cell">
+                       <td className="px-4 py-3 date-cell">
                           {renderExactTimestamp(item.updated_at)}
                        </td>
                      </tr>
@@ -580,7 +523,7 @@ const DigitalFootprintsPage = () => {
                  })}
                  {processedSubdomains.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="text-center py-4">
+                    <td colSpan="4" className="text-center py-4">
                       <p className="text-muted mb-0">No subdomains found.</p>
                     </td>
                   </tr>
@@ -670,136 +613,48 @@ const DigitalFootprintsPage = () => {
         </Modal>
 
         {/* ADD SUBDOMAIN MODAL */}
-        <Modal show={showAddModal} onHide={() => !isScanning && setShowAddModal(false)} centered>
-          <Modal.Header closeButton={!isScanning}>
-            <Modal.Title className="fw-semibold">
-              {isScanning ? "Scanning Surface..." : "Add & Scan Subdomain"}
-            </Modal.Title>
+        <Modal show={showAddModal} onHide={() => setShowAddModal(false)} centered>
+          <Modal.Header closeButton>
+            <Modal.Title className="fw-semibold">Add & Scan Subdomain</Modal.Title>
           </Modal.Header>
           <Modal.Body className="p-4">
-            
-            {isScanning ? (
-              <div className="text-center py-2">
-                <h5 className="fw-semibold mb-3">Scanning {scanTargetName}</h5>
-                
-                {/* 3-card stats block */}
-                <div className="row g-2 mb-4">
-                  <div className="col-4">
-                    <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(59, 130, 246, 0.06)', border: '1px solid rgba(59, 130, 246, 0.12)' }}>
-                      <div className="text-muted fw-semibold" style={{ fontSize: '0.72rem' }}>Total Tasks</div>
-                      <div className="h4 mb-0 fw-bold text-primary">6</div>
-                    </div>
-                  </div>
-                  <div className="col-4">
-                    <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.12)' }}>
-                      <div className="text-muted fw-semibold" style={{ fontSize: '0.72rem' }}>Completed</div>
-                      <div className="h4 mb-0 fw-bold text-success">{scanPhaseIndex}</div>
-                    </div>
-                  </div>
-                  <div className="col-4">
-                    <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.12)' }}>
-                      <div className="text-muted fw-semibold" style={{ fontSize: '0.72rem' }}>Remaining</div>
-                      <div className="h4 mb-0 fw-bold text-warning">{6 - scanPhaseIndex}</div>
-                    </div>
-                  </div>
+            {/* Wizard Step 1: Input subdomain / name check */}
+            {wizardStep === "input_subdomain" && (
+              <Form onSubmit={handleWizardSubmit}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="small text-muted fw-semibold">Enter Target Domain/URL to Scan</Form.Label>
+                  <Form.Control 
+                    type="text" 
+                    placeholder="e.g. example.com or https://example.com" 
+                    value={inputSubdomainName}
+                    onChange={(e) => setInputSubdomainName(e.target.value)}
+                    required
+                  />
+                  <Form.Text className="text-muted small">
+                    The scan will perform subdomain discovery, live host probing, technology detection, port scanning, and vulnerability analysis.
+                  </Form.Text>
+                </Form.Group>
+                <Button 
+                  type="submit" 
+                  variant="primary" 
+                  className="w-100 mt-2" 
+                  style={{ borderRadius: '10px' }}
+                  disabled={!inputSubdomainName.trim()}
+                >
+                  Continue
+                </Button>
+              </Form>
+            )}
+
+            {/* Wizard Step 2: Choose existing vs new domain */}
+            {wizardStep === "ask_domain_type" && (
+              <div>
+                <h6 className="fw-semibold text-center mb-3">Is the new subdomain from an existing domain or a new domain?</h6>
+                <div className="p-3 border rounded bg-light mb-3 text-center">
+                  <span className="small text-muted">Subdomain Prefix Target:</span>
+                  <h6 className="mb-0 text-primary fw-bold mt-1">{inputSubdomainName}</h6>
                 </div>
-
-                {/* Progress bar */}
-                <div className="progress mb-4" style={{ height: '8px', background: 'rgba(0, 0, 0, 0.05)', borderRadius: '4px' }}>
-                  <div className="progress-bar progress-bar-striped progress-bar-animated" style={{ width: `${scanProgress}%`, borderRadius: '4px' }}></div>
-                </div>
-
-                {/* Vertical Checklist Stepper */}
-                <div className="d-flex flex-column gap-2 text-start bg-light p-3 rounded-3 border" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                  {[
-                    "Initializing Passive Discovery (Subfinder, Amass)",
-                    "Resolving DNS & IP Records",
-                    "Scanning Open Ports (80, 443, 8080)",
-                    "Crawling Web Directories & Hidden Files",
-                    "Checking Technology signatures & frameworks",
-                    "Running Deep Vulnerability Scans (OWASP Top 10)"
-                  ].map((phaseName, idx) => {
-                    let icon, color, weight;
-                    if (scanPhaseIndex > idx) {
-                      icon = <i className="bi bi-check-circle-fill text-success" style={{ fontSize: '1rem' }}></i>;
-                      color = 'var(--text-primary, #1e293b)';
-                      weight = '500';
-                    } else if (scanPhaseIndex === idx) {
-                      icon = <Spinner animation="border" size="sm" variant="primary" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />;
-                      color = 'var(--accent-blue, #3b82f6)';
-                      weight = '600';
-                    } else {
-                      icon = <i className="bi bi-circle text-muted" style={{ fontSize: '1rem' }}></i>;
-                      color = 'var(--text-muted, #64748b)';
-                      weight = '400';
-                    }
-                    return (
-                      <div key={idx} className="d-flex align-items-center gap-3 p-2 rounded-2" style={{ backgroundColor: scanPhaseIndex === idx ? 'rgba(59, 130, 246, 0.05)' : 'transparent', transition: 'all 0.2s ease' }}>
-                        <div style={{ width: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>{icon}</div>
-                        <span style={{ color, fontWeight: weight, fontSize: '0.82rem' }}>{phaseName}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Wizard Step 1: Input subdomain / name check */}
-                {wizardStep === "input_subdomain" && (
-                  <Form onSubmit={handleWizardSubmit}>
-                    <Form.Group className="mb-3">
-                      <Form.Label className="small text-muted fw-semibold">Enter Target Domain/Subdomain to Scan</Form.Label>
-                      <Form.Control 
-                        type="text" 
-                        placeholder="e.g. portal.example.com or example.com" 
-                        value={inputSubdomainName}
-                        onChange={(e) => setInputSubdomainName(e.target.value)}
-                        required
-                      />
-                      <Form.Text className="text-muted small">
-                        We will check if this asset exists before starting the discovery scan.
-                      </Form.Text>
-                    </Form.Group>
-                    <Button 
-                      type="submit" 
-                      variant="primary" 
-                      className="w-100 mt-2" 
-                      style={{ borderRadius: '10px' }}
-                      disabled={!inputSubdomainName.trim()}
-                    >
-                      Check &amp; Continue
-                    </Button>
-                  </Form>
-                )}
-
-                {/* Wizard Step 1.5: Confirm Rescan */}
-                {wizardStep === "confirm_rescan" && (
-                  <div className="text-center">
-                    <i className="bi bi-exclamation-triangle text-warning fs-1 mb-3"></i>
-                    <h5>Subdomain Already Exists</h5>
-                    <p className="text-muted small mb-4">
-                      The subdomain <strong>"{scanTargetName}"</strong> is already scanned and present in your footprint list. Do you need to rescan it?
-                    </p>
-                    <div className="d-flex gap-2">
-                      <Button variant="outline-secondary" className="w-50" onClick={() => setWizardStep("input_subdomain")} style={{ borderRadius: '10px' }}>
-                        Back
-                      </Button>
-                      <Button variant="primary" className="w-50" onClick={() => runSimulatedScan(scanTargetName)} style={{ borderRadius: '10px' }}>
-                        Yes, Rescan
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Wizard Step 2: Choose existing vs new domain */}
-                {wizardStep === "ask_domain_type" && (
-                  <div>
-                    <h6 className="fw-semibold text-center mb-3">Is the new subdomain from an existing domain or a new domain?</h6>
-                    <div className="p-3 border rounded bg-light mb-3 text-center">
-                      <span className="small text-muted">Subdomain Prefix Target:</span>
-                      <h6 className="mb-0 text-primary fw-bold mt-1">{inputSubdomainName}</h6>
-                    </div>
-                    <div className="d-flex gap-2">
+                <div className="d-flex gap-2">
                       <Button variant="outline-primary" className="w-50 py-3" onClick={() => setWizardStep("select_existing")} style={{ borderRadius: '10px' }}>
                         <i className="bi bi-folder-check d-block fs-4 mb-1"></i> Existing Domain
                       </Button>
@@ -917,8 +772,6 @@ const DigitalFootprintsPage = () => {
                     </div>
                   </Form>
                 )}
-              </>
-            )}
           </Modal.Body>
         </Modal>
 

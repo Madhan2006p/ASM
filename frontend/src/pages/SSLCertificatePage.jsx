@@ -35,6 +35,8 @@ const SSLCertificatePage = () => {
             { header: 'Domain', key: 'domain', width: 40 },
             { header: 'Subdomain', key: 'subdomain', width: 40 },
             { header: 'IP', key: 'ip', width: 20 },
+            { header: 'IP Count', key: 'ip_count', width: 12 },
+            { header: 'DNS Count', key: 'dns_count', width: 12 },
             { header: 'RDNS', key: 'rdns', width: 50 },
             { header: 'SSL Grade', key: 'ssl_grade', width: 15 },
             { header: 'Issuer Name', key: 'issuer_name', width: 50 },
@@ -52,6 +54,8 @@ const SSLCertificatePage = () => {
               domain: item.domain || '-',
               subdomain: item.subdomain || '-',
               ip: item.ip || '-',
+              ip_count: item.ip_count || 0,
+              dns_count: item.dns_count || 0,
               rdns: item.rdns || '-',
               ssl_grade: item.ssl_grade || '-',
               issuer_name: item.issuer_name || '-',
@@ -192,6 +196,66 @@ const shadowItCount = React.useMemo(() => {
   return sslCertificates.filter(c => c.is_shadow_it === true).length;
 }, [sslCertificates]);
 
+// ── Timeline & Heatmap Data ──────────────────────────────────────────
+const expiryCategories = React.useMemo(() => {
+  const cats = { expired: [], critical: [], warning: [], healthy: [] };
+  sslCertificates.forEach(c => {
+    const days = getDaysUntilExpiry(c.expiry_date);
+    if (days === null) return;
+    if (days < 0) cats.expired.push({ ...c, days });
+    else if (days <= 7) cats.critical.push({ ...c, days });
+    else if (days <= 30) cats.warning.push({ ...c, days });
+    else cats.healthy.push({ ...c, days });
+  });
+  return cats;
+}, [sslCertificates]);
+
+const sortedByExpiry = React.useMemo(() => {
+  return [...sslCertificates]
+    .filter(c => c.expiry_date && c.expiry_date !== '-')
+    .sort((a, b) => (getDaysUntilExpiry(a.expiry_date) ?? 9999) - (getDaysUntilExpiry(b.expiry_date) ?? 9999));
+}, [sslCertificates]);
+
+const monthlyExpiryMap = React.useMemo(() => {
+  const map = {};
+  sslCertificates.forEach(c => {
+    if (!c.expiry_date || c.expiry_date === '-') return;
+    const [day, month, year] = c.expiry_date.split('-').map(Number);
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    map[key] = (map[key] || 0) + 1;
+  });
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, count]) => ({ key, label: new Date(key + '-01').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), count }));
+}, [sslCertificates]);
+
+const maxMonthlyCount = React.useMemo(() => Math.max(...monthlyExpiryMap.map(m => m.count), 1), [monthlyExpiryMap]);
+
+const todayNow = React.useMemo(() => new Date(), []);
+
+const getBarColor = (days) => {
+  if (days < 0) return '#ef4444';
+  if (days <= 7) return '#f97316';
+  if (days <= 30) return '#eab308';
+  if (days <= 90) return '#22c55e';
+  return '#3b82f6';
+};
+
+const getBarBg = (days) => {
+  if (days < 0) return 'rgba(239,68,68,0.12)';
+  if (days <= 7) return 'rgba(249,115,22,0.12)';
+  if (days <= 30) return 'rgba(234,179,8,0.12)';
+  if (days <= 90) return 'rgba(34,197,94,0.12)';
+  return 'rgba(59,130,246,0.12)';
+};
+
+const getUrgencyLabel = (days) => {
+  if (days < 0) return 'Expired';
+  if (days <= 7) return 'Critical';
+  if (days <= 30) return 'Warning';
+  return 'Healthy';
+};
+
   return (
     <div className="digital-page">
       <Sidebar />
@@ -283,6 +347,172 @@ const shadowItCount = React.useMemo(() => {
           </Col>
         </Row>
 
+        {/* ── Certificate Expiry Timeline ──────────────────────────────── */}
+        <div className="card mb-4" style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--header-border)' }}>
+          <div className="card-body" style={{ background: 'var(--header-bg)' }}>
+            <div className="d-flex align-items-center justify-content-between mb-3">
+              <h5 className="mb-0 fw-semibold" style={{ color: 'var(--text-color)' }}>
+                <i className="bi bi-calendar-range me-2"></i>
+                Certificate Expiry Timeline
+                <span className="badge bg-secondary bg-opacity-10 text-secondary ms-2 fw-normal" style={{ fontSize: '0.7rem', verticalAlign: 'middle' }}>{sortedByExpiry.length} certs</span>
+              </h5>
+              <small className="text-muted">
+                <i className="bi bi-info-circle me-1"></i>
+                Sorted by urgency
+              </small>
+            </div>
+
+            {/* 4 Mini Stat Cards */}
+            <Row className="g-2 mb-3">
+              {[
+                { label: 'Expired', count: expiryCategories.expired.length, icon: 'bi-x-octagon', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+                { label: 'Critical ≤7d', count: expiryCategories.critical.length, icon: 'bi-exclamation-triangle', color: '#f97316', bg: 'rgba(249,115,22,0.1)' },
+                { label: 'Warning ≤30d', count: expiryCategories.warning.length, icon: 'bi-clock', color: '#eab308', bg: 'rgba(234,179,8,0.1)' },
+                { label: 'Healthy', count: expiryCategories.healthy.length, icon: 'bi-check-circle', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' },
+              ].map(stat => (
+                <Col key={stat.label} style={{ minWidth: 0, flex: '1 1 0' }}>
+                  <div className="d-flex align-items-center gap-2 p-2 rounded-3" style={{ background: stat.bg }}>
+                    <div className="rounded-circle d-flex align-items-center justify-content-center" style={{ width: 32, height: 32, background: stat.color, color: '#fff', fontSize: '0.9rem', flexShrink: 0 }}>
+                      <i className={stat.icon}></i>
+                    </div>
+                    <div style={{ lineHeight: '1.2', minWidth: 0 }}>
+                      <div className="fw-bold" style={{ color: stat.color, fontSize: '1.05rem' }}>{stat.count}</div>
+                      <div style={{ color: 'var(--text-color)', opacity: 0.6, fontSize: '0.7rem', whiteSpace: 'nowrap' }}>{stat.label}</div>
+                    </div>
+                  </div>
+                </Col>
+              ))}
+            </Row>
+
+            {/* Monthly Expiry Bar Chart */}
+            {monthlyExpiryMap.length > 0 && (
+              <div className="mb-3">
+                <div className="d-flex align-items-center justify-content-between mb-2">
+                  <small className="fw-semibold text-muted">Expiry Distribution by Month</small>
+                  <small className="text-muted" style={{ fontSize: '0.65rem' }}>← Past / Future →</small>
+                </div>
+                <div className="d-flex align-items-end gap-2" style={{ height: '90px' }}>
+                  {monthlyExpiryMap.map(m => {
+                    const pct = Math.max((m.count / maxMonthlyCount) * 100, 6);
+                    const isPast = new Date(m.key + '-01') < new Date();
+                    return (
+                      <div key={m.key} className="d-flex flex-column align-items-center" style={{ flex: '1 1 0', minWidth: 0 }}>
+                        <small style={{ fontSize: '0.6rem', color: 'var(--text-color)', opacity: 0.7, lineHeight: '1.1', textAlign: 'center' }}>{m.label}</small>
+                        <div
+                          className="rounded-1 mt-1 transition-all"
+                          title={`${m.count} cert(s) expiring in ${m.label}`}
+                          style={{
+                            width: '100%', maxWidth: 48, height: `${pct}%`,
+                            background: isPast ? '#ef4444' : '#3b82f6',
+                            opacity: isPast ? 0.6 : 0.85,
+                            borderRadius: '4px 4px 0 0',
+                            transition: 'all 0.2s',
+                            cursor: 'pointer',
+                            minHeight: '8px',
+                          }}
+                          onMouseOver={e => { e.target.style.opacity = '1'; e.target.style.transform = 'scaleX(1.08)'; }}
+                          onMouseOut={e => { e.target.style.opacity = isPast ? '0.6' : '0.85'; e.target.style.transform = 'none'; }}
+                        />
+                        <small className="fw-semibold mt-1" style={{ fontSize: '0.7rem', color: 'var(--text-color)' }}>{m.count}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Expiry Timeline Cards */}
+            <div style={{ maxHeight: '320px', overflowY: 'auto', margin: '0 -4px', padding: '0 4px' }}>
+              {sortedByExpiry.length > 0 ? (
+                sortedByExpiry.map((item, idx) => {
+                  const days = getDaysUntilExpiry(item.expiry_date) ?? 0;
+                  const color = getBarColor(days);
+                  const bg = getBarBg(days);
+                  const urgency = getUrgencyLabel(days);
+                  const isExpired = days < 0;
+                  const pctDone = item.purchase_date && item.purchase_date !== '-'
+                    ? (() => {
+                        try {
+                          const [pd, pm, py] = item.purchase_date.split('-').map(Number);
+                          const [ed, em, ey] = item.expiry_date.split('-').map(Number);
+                          const purchased = new Date(py, pm - 1, pd);
+                          const expires = new Date(ey, em - 1, ed);
+                          const total = expires - purchased;
+                          const elapsed = todayNow - purchased;
+                          return total > 0 ? Math.min(Math.max(Math.round((elapsed / total) * 100), 0), 100) : 50;
+                        } catch { return 50; }
+                      })()
+                    : Math.min(Math.max(100 - (days / 365) * 100, 0), 100);
+                  const daysAbs = Math.abs(days);
+
+                  return (
+                    <div key={item.id || idx} className="d-flex align-items-center gap-2 py-2 px-2 rounded-3 mb-1 transition-all"
+                      style={{ background: bg, borderLeft: `4px solid ${color}`, cursor: 'default' }}
+                      title={`${item.domain} - ${item.expiry_date} (${days >= 0 ? daysAbs + ' days left' : 'Expired ' + daysAbs + ' days ago'})`}
+                    >
+                      {/* Domain & Grade */}
+                      <div style={{ flex: '1 1 35%', minWidth: 0, overflow: 'hidden' }}>
+                        <div className="fw-medium text-truncate" style={{ color: 'var(--text-color)', fontSize: '0.82rem' }}>
+                          {sanitizeSubdomainStr(item.domain)}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-color)', opacity: 0.5 }}>
+                          {item.issuer_name ? item.issuer_name.split(',')[0].replace(/^CN=\s*/, '').substring(0, 30) : '—'}
+                        </div>
+                      </div>
+
+                      {/* Grade Badge */}
+                      <div style={{ flex: '0 0 auto' }}>
+                        {item.ssl_grade && item.ssl_grade !== '-' ? (
+                          <span className="badge rounded-pill fw-semibold" style={{
+                            background: item.ssl_grade === 'A+' || item.ssl_grade === 'A' ? 'rgba(34,197,94,0.15)' : item.ssl_grade === 'F' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
+                            color: item.ssl_grade === 'A+' || item.ssl_grade === 'A' ? '#22c55e' : item.ssl_grade === 'F' ? '#ef4444' : '#eab308',
+                            fontSize: '0.7rem'
+                          }}>{item.ssl_grade}</span>
+                        ) : (
+                          <span className="text-muted" style={{ fontSize: '0.7rem' }}>—</span>
+                        )}
+                      </div>
+
+                      {/* Expiry Date & Countdown */}
+                      <div style={{ flex: '1 1 25%', minWidth: 0, textAlign: 'right' }}>
+                        <div style={{ color: 'var(--text-color)', fontSize: '0.78rem', fontWeight: 500 }}>{item.expiry_date || '—'}</div>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 600, color }}>
+                          {isExpired ? `${daysAbs}d expired` : `${daysAbs}d left`}
+                        </div>
+                      </div>
+
+                      {/* Urgency Badge */}
+                      <div style={{ flex: '0 0 auto' }}>
+                        <span className="badge rounded-pill fw-semibold" style={{
+                          background: color + '22',
+                          color,
+                          fontSize: '0.65rem',
+                          border: `1px solid ${color}44`,
+                        }}>{urgency}</span>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div style={{ flex: '1 1 20%', minWidth: '60px' }}>
+                        <div className="rounded-pill" style={{ height: 5, background: 'rgba(0,0,0,0.06)', overflow: 'hidden', width: '100%' }}>
+                          <div className="rounded-pill transition-all" style={{
+                            width: `${pctDone}%`, height: '100%',
+                            background: isExpired ? '#ef4444' : days <= 7 ? '#f97316' : days <= 30 ? '#eab308' : '#22c55e',
+                            transition: 'width 0.4s ease',
+                          }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-3">
+                  <small className="text-muted">No certificate expiry data available.</small>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Search Box */}
         <div className="card mb-4">
           <div className="card-body">
@@ -303,6 +533,8 @@ const shadowItCount = React.useMemo(() => {
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>S.No</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Domain</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>IP</th>
+                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>IP Count</th>
+                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>DNS Count</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>RDNS</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>SSL Grade</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Issuer Name</th>
@@ -371,6 +603,26 @@ const shadowItCount = React.useMemo(() => {
                           ) : (
                             <span className="text-muted">-</span>
                           )}
+                        </td>
+                        <td className="px-4 text-center">
+                          <span className="badge rounded-pill" style={{
+                            background: item.ip_count > 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(100, 116, 139, 0.08)',
+                            color: item.ip_count > 0 ? '#10b981' : '#64748b',
+                            fontWeight: 600,
+                            fontSize: '0.82rem'
+                          }}>
+                            {item.ip_count ?? 0}
+                          </span>
+                        </td>
+                        <td className="px-4 text-center">
+                          <span className="badge rounded-pill" style={{
+                            background: item.dns_count > 0 ? 'rgba(59, 130, 246, 0.12)' : 'rgba(100, 116, 139, 0.08)',
+                            color: item.dns_count > 0 ? '#3b82f6' : '#64748b',
+                            fontWeight: 600,
+                            fontSize: '0.82rem'
+                          }}>
+                            {item.dns_count ?? 0}
+                          </span>
                         </td>
                         <td className="px-4">
                           {item.rdns && item.rdns !== '-' ? (
@@ -467,7 +719,7 @@ const shadowItCount = React.useMemo(() => {
                   })
               ) : (
                 <tr>
-                  <td colSpan="11" className="text-center py-4">
+                  <td colSpan="13" className="text-center py-4">
                     <p className="text-muted mb-0">No SSL certificates found.</p>
                   </td>
                 </tr>

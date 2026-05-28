@@ -7,6 +7,7 @@ import { FiUser } from "react-icons/fi";
 const Header = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState(null);
+  const [userPlan, setUserPlan] = useState(localStorage.getItem("userPlan") || "Free");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -14,6 +15,8 @@ const Header = () => {
     const checkLoginStatus = () => {
       const accessToken = localStorage.getItem("accessToken");
       const userData = localStorage.getItem("user");
+      const currentPlan = localStorage.getItem("userPlan") || "Free";
+      setUserPlan(currentPlan);
       
       if (accessToken && userData) {
         setIsLoggedIn(true);
@@ -35,7 +38,7 @@ const Header = () => {
 
     // Listen for storage changes (e.g., login/logout in other tabs or same tab)
     const handleStorageChange = (e) => {
-      if (e.key === 'accessToken' || e.key === 'user') {
+      if (e.key === 'accessToken' || e.key === 'user' || e.key === 'userPlan') {
         checkLoginStatus();
       }
     };
@@ -142,10 +145,31 @@ const Header = () => {
                     <span className="fw-bold d-block mb-1" style={{ fontSize: '1.05rem' }}>
                       {user?.name || 'User'}
                     </span>
-                    <span className="text-muted d-block" style={{ fontSize: '0.85rem' }}>
+                    <span className="text-muted d-block mb-2" style={{ fontSize: '0.85rem' }}>
                       {user?.email || ''}
                     </span>
+                    <span className="badge rounded-pill mb-1" style={{
+                      backgroundColor: userPlan === 'Enterprise' ? 'rgba(139, 92, 246, 0.15)' : userPlan === 'Pro' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                      color: userPlan === 'Enterprise' ? '#8b5cf6' : userPlan === 'Pro' ? '#3b82f6' : '#64748b',
+                      border: userPlan === 'Enterprise' ? '1px solid rgba(139, 92, 246, 0.3)' : userPlan === 'Pro' ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(100, 116, 139, 0.3)',
+                      padding: '4px 12px',
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {userPlan} Plan
+                    </span>
                   </div>
+                  <Dropdown.Divider style={{ borderColor: 'var(--header-border)' }} />
+                  <Dropdown.Item 
+                    onClick={() => {
+                      window.dispatchEvent(new Event('showSubscription'));
+                    }} 
+                    style={{ color: 'var(--text-color)', fontWeight: 500, padding: '8px 16px' }}
+                  >
+                    👑 Manage Subscription
+                  </Dropdown.Item>
                 </>
               ) : (
                 <>

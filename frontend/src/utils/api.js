@@ -1,5 +1,5 @@
 import axios from "axios";
-import { API_BASE, AUTH_URL, ATTACK_SURFACE_URL, SCANS_URL } from "./apiConfig";
+import { API_BASE, AUTH_URL, ATTACK_SURFACE_URL, SCANS_URL, TOOLS_HEALTH_URL, CLEAR_DB_URL } from "./apiConfig";
 
 const API_BASE_URL = `${AUTH_URL}/`;
 
@@ -155,14 +155,6 @@ export const checkAuth = async () => {
   }
 };
 
-const getActiveScanId = () => {
-  try {
-    return localStorage.getItem("activeScanId");
-  } catch {
-    return null;
-  }
-};
-
 const buildAttackSurfaceUrl = (endpoint, orgId, scanId = null) => {
   const params = new URLSearchParams({ org_id: String(orgId) });
   if (scanId) params.set("scan", String(scanId));
@@ -171,8 +163,7 @@ const buildAttackSurfaceUrl = (endpoint, orgId, scanId = null) => {
 
 export const fetchAttackSurface = async (endpoint, orgId, pageUrl = null, scanId = null) => {
   const token = localStorage.getItem("accessToken");
-  const resolvedScanId = scanId ?? getActiveScanId();
-  const url = pageUrl || buildAttackSurfaceUrl(endpoint, orgId, resolvedScanId);
+  const url = pageUrl || buildAttackSurfaceUrl(endpoint, orgId, scanId);
 
   try {
     const response = await axios.get(url, {
@@ -188,11 +179,10 @@ export const fetchAttackSurface = async (endpoint, orgId, pageUrl = null, scanId
 };
 
 export const fetchAllPages = async (endpoint, orgId, scanId = null) => {
-  const resolvedScanId = scanId ?? getActiveScanId();
-  const baseUrl = buildAttackSurfaceUrl(endpoint, orgId, resolvedScanId);
+  const baseUrl = buildAttackSurfaceUrl(endpoint, orgId, scanId);
 
   try {
-    const first = await fetchAttackSurface(endpoint, orgId, baseUrl, resolvedScanId);
+    const first = await fetchAttackSurface(endpoint, orgId, baseUrl, scanId);
     if (!first.results || first.count === 0) return [];
 
     const pageSize = first.results.length;
@@ -291,5 +281,37 @@ export const quickScanDomain = async (domain, orgId = "1") => {
   }
   return response.data;
 };
+
+export const fetchToolsHealth = async () => {
+  const token = localStorage.getItem("accessToken");
+  try {
+    const response = await axios.get(`${TOOLS_HEALTH_URL}/`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Failed to fetch tools health" };
+  }
+};
+
+export const clearDatabase = async () => {
+  const token = localStorage.getItem("accessToken");
+  try {
+    const response = await axios.delete(`${CLEAR_DB_URL}/`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Failed to clear database" };
+  }
+};
+
+
 
 export default api;

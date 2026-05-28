@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../utils/api';
-import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown } from 'react-icons/fi';
+import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiActivity, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown } from 'react-icons/fi';
 import '../styles/Sidebar.css';
 
 const Sidebar = () => {
@@ -94,6 +94,11 @@ const Sidebar = () => {
         <li>
           <Link to="/ssl-certificates" className={isActive('/ssl-certificates')}>
             <span><FiLock size={18} /></span> SSL Certificate
+          </Link>
+        </li>
+        <li>
+          <Link to="/scan-history" className={isActive('/scan-history')}>
+            <span><FiActivity size={18} /></span> Scan History
           </Link>
         </li>
         <li>

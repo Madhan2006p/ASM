@@ -185,6 +185,7 @@ const getSeverityBadge = React.useCallback((severity) => {
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Vulnerability ID</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Domain / Subdomain</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Severity</th>
+                <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Source Tool</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>CVE / CWE</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Finding</th>
                 <th className="py-3 px-4 fw-semibold border-bottom-0" style={{ color: 'var(--text-color)' }}>Discovered</th>
@@ -201,6 +202,7 @@ const getSeverityBadge = React.useCallback((severity) => {
                       (item.domain?.toLowerCase() || '').includes(s) ||
                       (item.subdomain?.toLowerCase() || '').includes(s) ||
                       (item.severity?.toLowerCase() || '').includes(s) ||
+                      (item.source_tool?.toLowerCase() || '').includes(s) ||
                       (item.cve?.toLowerCase() || '').includes(s)
                     );
                   })
@@ -213,6 +215,22 @@ const getSeverityBadge = React.useCallback((severity) => {
                         {item.subdomain !== '-' && <div className="small text-muted">{sanitizeSubdomainStr(item.subdomain)}</div>}
                       </td>
                       <td className="px-4">{getSeverityBadge(item.severity)}</td>
+                      <td className="px-4">
+                        {item.source_tool ? (
+                          <span className="badge rounded-pill" style={{
+                            background: item.source_tool === 'Wapiti' ? 'rgba(139, 92, 246, 0.12)' : 'rgba(100, 116, 139, 0.1)',
+                            color: item.source_tool === 'Wapiti' ? '#8B5CF6' : '#64748b',
+                            fontWeight: 500,
+                            padding: '4px 10px',
+                            fontSize: '0.78rem'
+                          }}>
+                            {item.source_tool === 'Wapiti' && <i className="bi bi-shield-exclamation me-1"></i>}
+                            {item.source_tool}
+                          </span>
+                        ) : (
+                          <span className="text-muted small">-</span>
+                        )}
+                      </td>
                       <td className="px-4">
                         <div>{item.cve !== '-' ? <span className="badge rounded-pill" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444', fontWeight: 500 }}>{item.cve}</span> : null}</div>
                         <div className="mt-1">{item.cwe !== '-' ? <span className="badge rounded-pill" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B', fontWeight: 500 }}>{item.cwe}</span> : null}</div>
@@ -228,8 +246,7 @@ const getSeverityBadge = React.useCallback((severity) => {
                     </tr>
                   ))
               ) : (
-                <tr>
-                  <td colSpan="7" className="text-center py-4">No vulnerabilities found.</td>
+                <tr>                    <td colSpan="8" className="text-center py-4">No vulnerabilities found.</td>
                 </tr>
               )}
             </tbody>

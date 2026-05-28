@@ -12,12 +12,14 @@ const jsPDF = jsPDFModule.jsPDF || jsPDFModule.default?.jsPDF || jsPDFModule.def
 
 const DashboardPage = () => {
   const navigate = useNavigate();
-  const { startScan: contextStartScan, scanState } = useScan();
+  const { startScan: contextStartScan, scanState, refreshKey } = useScan();
 
   // Modal states
   const [showScanModal, setShowScanModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showCheckModal, setShowCheckModal] = useState(false);
+  const [userPlan, setUserPlan] = useState(localStorage.getItem("userPlan") || "Free");
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   // Smart scan wizard states
   const [wizardStep, setWizardStep] = useState("input_subdomain");
@@ -25,13 +27,6 @@ const DashboardPage = () => {
   const [selectedExistingDomain, setSelectedExistingDomain] = useState("");
   const [newRootDomain, setNewRootDomain] = useState("");
   const [specificPrefix, setSpecificPrefix] = useState("");
-
-  // Scan simulation states
-  const [scanTargetName, setScanTargetName] = useState("");
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scanPhase, setScanPhase] = useState("");
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanPhaseIndex, setScanPhaseIndex] = useState(0);
 
   // Render exact timestamp as a two-line block to avoid horizontal collision
   const renderExactTimestamp = (dateString) => {
@@ -52,14 +47,6 @@ const DashboardPage = () => {
     }
   };
 
-  // Security Check simulation states
-  const [checkProgress, setCheckProgress] = useState(0);
-  const [checkLogs, setCheckLogs] = useState([]);
-  const [isChecking, setIsChecking] = useState(false);
-
-  // Report simulation states
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [reportProgress, setReportProgress] = useState(0);
   const [reportReady, setReportReady] = useState(false);
   const [notification, setNotification] = useState({ show: false, title: '', message: '', type: 'info', onConfirm: null });
 
@@ -132,36 +119,16 @@ const DashboardPage = () => {
 
 
 
-  const getSimulatedScanLogs = (target, phaseIndex) => {
-    const logs = [];
-    const timestamp = () => `[${new Date().toLocaleTimeString()}]`;
-    logs.push({ text: `${timestamp()} [SYSTEM] Scan engine active for ${target}`, type: 'sys' });
-    const phases = [
-      "Subdomain Discovery",
-      "Live Host Probing",
-      "Port Scanning",
-      "Technology Detection",
-      "Vulnerability Scanning",
-      "SSL/Email Security",
-      "Finalizing"
-    ];
-    for (let i = 0; i <= Math.min(phaseIndex, phases.length - 1); i++) {
-      logs.push({ text: `${timestamp()} [${phaseIndex >= i + 1 ? 'DONE' : '....'}] ${phases[i]}`, type: phaseIndex >= i + 1 ? 'success' : 'sys' });
-    }
-    return logs;
-  };
-
-
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (scanId = null) => {
     try {
       const orgId = "1";
       const [subList, vulnList, endpointsList, portList, techList, sslList, domainList] = await Promise.all([
-        fetchAllPages('subdomains', orgId).catch(() => []),
-        fetchAllPages('vulnerabilities', orgId).catch(() => []),
-        fetchAllPages('endpoints', orgId).catch(() => []),
-        fetchAllPages('open-ports', orgId).catch(() => []),
-        fetchAllPages('technologies', orgId).catch(() => []),
-        fetchAllPages('ssl-certificates', orgId).catch(() => []),
+        fetchAllPages('subdomains', orgId, scanId).catch(() => []),
+        fetchAllPages('vulnerabilities', orgId, scanId).catch(() => []),
+        fetchAllPages('endpoints', orgId, scanId).catch(() => []),
+        fetchAllPages('open-ports', orgId, scanId).catch(() => []),
+        fetchAllPages('technologies', orgId, scanId).catch(() => []),
+        fetchAllPages('ssl-certificates', orgId, scanId).catch(() => []),
         fetchMonitoredDomains(orgId).catch(() => []),
       ]);
 
@@ -208,7 +175,12 @@ const DashboardPage = () => {
       setWebEntities(endpointsList);
       setCertificates(sslList);
       setPortCount(portList.length);
-      setMonitoredDomains(domainList);
+      
+      if (domainList && domainList.length > 0) {
+        setMonitoredDomains(domainList);
+      } else {
+        setMonitoredDomains([]);
+      }
 
       setActivities(prev => ["Dashboard loaded with live scan data.", ...prev.slice(0, 4)]);
     } catch (err) {
@@ -217,8 +189,11 @@ const DashboardPage = () => {
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    const handleShowSub = () => setShowSubscriptionModal(true);
+    window.addEventListener('showSubscription', handleShowSub);
+
+    return () => window.removeEventListener('showSubscription', handleShowSub);
+  }, []);
 
   const prevPhasesRef = React.useRef({});
   useEffect(() => {
@@ -226,16 +201,18 @@ const DashboardPage = () => {
     const changed = Object.keys(phases).some(k => phases[k] && !prevPhasesRef.current[k]);
     if (changed) {
       prevPhasesRef.current = { ...phases };
-      loadData();
+      loadData(scanState.scanId);
     }
-  }, [scanState.phasesDone, loadData]);
+  }, [scanState.phasesDone, loadData, scanState.scanId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData, refreshKey]);
 
   // Reset report generator states when modal opens/closes
   useEffect(() => {
     if (!showReportModal) {
       setReportReady(false);
-      setIsGenerating(false);
-      setReportProgress(0);
     }
   }, [showReportModal]);
 
@@ -248,20 +225,6 @@ const DashboardPage = () => {
     }
   };
 
-  const runSimulatedScan = (target) => {
-    setIsScanning(true);
-    setScanTargetName(target);
-    setScanPhase("Starting scan...");
-    setScanProgress(0);
-    setScanPhaseIndex(0);
-    setShowScanModal(false);
-    contextStartScan(target);
-
-    setTimeout(() => {
-      setActivities(prev => [`Scan started for ${target}`, ...prev.slice(0, 9)]);
-    }, 500);
-  };
-
   const normalizeDomainInput = (value) => {
     return value.trim().toLowerCase().replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
   };
@@ -270,6 +233,13 @@ const DashboardPage = () => {
     e.preventDefault();
     const domain = normalizeDomainInput(domainInput);
     if (!domain) return;
+
+    // Check plan restriction: Free tier is limited to 1 monitored domain
+    if (userPlan === "Free" && monitoredDomains.length >= 1) {
+      setShowSubscriptionModal(true);
+      return;
+    }
+
     setDomainSaving(true);
     try {
       const result = await addMonitoredDomain({
@@ -287,7 +257,7 @@ const DashboardPage = () => {
       setDomainInput("");
       await loadData();
     } catch {
-      setActivities(prev => [`Failed to add domain ${domain}`, ...prev.slice(0, 9)]);
+            setActivities(prev => [`Failed to add domain ${domain}. Server may be unavailable.`, ...prev.slice(0, 9)]);
     } finally {
       setDomainSaving(false);
     }
@@ -296,12 +266,22 @@ const DashboardPage = () => {
   const handleQuickScan = async () => {
     const domain = normalizeDomainInput(domainInput || monitoredDomains[0]?.domain || "");
     if (!domain) return;
+
+    // Check plan restriction: If scanning a NEW domain and Free limit is reached
+    const isExisting = monitoredDomains.some(m => m.domain === domain);
+    if (!isExisting && userPlan === "Free" && monitoredDomains.length >= 1) {
+      setShowSubscriptionModal(true);
+      return;
+    }
+
     setDomainSaving(true);
     try {
       contextStartScan(domain);
       setActivities(prev => [`Quick scan started for ${domain}`, ...prev.slice(0, 9)]);
+      
+      setDomainInput("");
     } catch {
-      setActivities(prev => [`Failed to start quick scan for ${domain}`, ...prev.slice(0, 9)]);
+            setActivities(prev => [`Quick scan failed for ${domain}. Server may be unavailable.`, ...prev.slice(0, 9)])
     } finally {
       setDomainSaving(false);
     }
@@ -318,30 +298,24 @@ const DashboardPage = () => {
       
       if (!rawVal) return;
 
-      const existing = subdomains.find(s => s.domain === rawVal);
-      if (existing) {
-        setScanTargetName(rawVal);
-        setWizardStep("confirm_rescan");
-      } else {
-        setInputSubdomainName(rawVal);
-        const parts = rawVal.split('.');
-        if (parts.length > 2) {
-          const root = parts.slice(-2).join('.');
-          const prefix = parts.slice(0, -2).join('.');
-          setNewRootDomain(root);
-          setSpecificPrefix(prefix);
-          if (uniqueDomains.includes(root)) {
-            setSelectedExistingDomain(root);
-          } else {
-            setSelectedExistingDomain("");
-          }
+      setInputSubdomainName(rawVal);
+      const parts = rawVal.split('.');
+      if (parts.length > 2) {
+        const root = parts.slice(-2).join('.');
+        const prefix = parts.slice(0, -2).join('.');
+        setNewRootDomain(root);
+        setSpecificPrefix(prefix);
+        if (uniqueDomains.includes(root)) {
+          setSelectedExistingDomain(root);
         } else {
-          setNewRootDomain(rawVal);
-          setSpecificPrefix("");
           setSelectedExistingDomain("");
         }
-        setWizardStep("ask_domain_type");
+      } else {
+        setNewRootDomain(rawVal);
+        setSpecificPrefix("");
+        setSelectedExistingDomain("");
       }
+      setWizardStep("ask_domain_type");
     }
   };
 
@@ -349,13 +323,8 @@ const DashboardPage = () => {
     e.preventDefault();
     if (!selectedExistingDomain) return;
     const targetSub = sanitizeSubdomainStr(combineSubdomainAndRoot(specificPrefix, selectedExistingDomain));
-    const existing = subdomains.find(s => s.domain === targetSub);
-    if (existing) {
-      setScanTargetName(targetSub);
-      setWizardStep("confirm_rescan");
-    } else {
-      runSimulatedScan(targetSub);
-    }
+    setShowScanModal(false);
+    contextStartScan(targetSub);
   };
 
   const handleNewDomainSubmit = (e) => {
@@ -364,40 +333,17 @@ const DashboardPage = () => {
     root = root.replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
     if (!root) return;
     const targetSub = sanitizeSubdomainStr(combineSubdomainAndRoot(specificPrefix, root));
-    const existing = subdomains.find(s => s.domain === targetSub);
-    if (existing) {
-      setScanTargetName(targetSub);
-      setWizardStep("confirm_rescan");
-    } else {
-      runSimulatedScan(targetSub);
+    // Check plan restriction: Free tier is limited to 1 monitored domain
+    if (userPlan === "Free" && monitoredDomains.length >= 1) {
+      setShowSubscriptionModal(true);
+      setShowScanModal(false);
+      return;
     }
+    setShowScanModal(false);
+    contextStartScan(targetSub);
   };
 
-  // Quick Action 2: Generate Report (PDF) - Phase 1: Compile Data
-  const handleGenerateReport = () => {
-    setIsGenerating(true);
-    setReportProgress(0);
-    setReportReady(false);
-
-    const timer = setInterval(() => {
-      setReportProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 150);
-
-    setTimeout(() => {
-      setIsGenerating(false);
-      setReportReady(true);
-      // Automatically trigger PDF generation & download
-      handleDownloadPDF(true);
-    }, 2000);
-  };
-
-  // Phase 2: Synchronous PDF Compilation and Instant Save on direct user trigger
+  // Synchronous PDF Compilation and Instant Save on direct user trigger
   const handleDownloadPDF = (isAutoDownload = false) => {
     try {
       // Initialize jsPDF document (A4 portrait)
@@ -633,40 +579,6 @@ const DashboardPage = () => {
   };
 
   // Quick Action 3: Global System Security Check
-  const handleRunSecurityCheck = () => {
-    setIsChecking(true);
-    setCheckProgress(0);
-    setCheckLogs(["Initiating core integrity system check..."]);
-
-    const logSteps = [
-      { time: 400, progress: 15, log: "Parsing domain system files..." },
-      { time: 800, progress: 35, log: "Analyzing SSL status configs..." },
-      { time: 1200, progress: 55, log: "Probing endpoints security compliance..." },
-      { time: 1600, progress: 75, log: "Testing open port permissions..." },
-      { time: 2000, progress: 90, log: "Cross-referencing global CVE datasets..." },
-      { time: 2400, progress: 100, log: "Scan complete. No active malware detected." }
-    ];
-
-    logSteps.forEach(step => {
-      setTimeout(() => {
-        setCheckProgress(step.progress);
-        setCheckLogs(prev => [...prev, step.log]);
-      }, step.time);
-    });
-
-    setTimeout(() => {
-      setIsChecking(false);
-      setShowCheckModal(false);
-      setActivities(prev => [`System Security Check executed successfully`, ...prev]);
-      setNotification({
-        show: true,
-        title: "Security Check Completed",
-        message: "Security Check Completed! Your platform firewall and endpoints comply fully with standards.",
-        type: "info"
-      });
-    }, 3200);
-  };
-
   return (
     <div className="d-flex" style={{ minHeight: 'calc(100vh - 70px)' }}>
       <Sidebar />
@@ -769,60 +681,7 @@ const DashboardPage = () => {
           </Col>
         </Row>
 
-        {/* Top Risks */}
-        <Row className="mb-4 g-3">
-          <Col md={12}>
-            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
-              <Card.Header className="bg-transparent border-bottom-0 pt-4 pb-2">
-                <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Top Risks</h5>
-              </Card.Header>
-              <Card.Body className="p-0">
-                <div className="table-responsive">
-                  <Table className="mb-0 align-middle" hover style={{ color: 'var(--text-color)' }}>
-                    <thead>
-                      <tr className="text-muted small">
-                        <th className="px-4">SEVERITY</th>
-                        <th>RISK NAME</th>
-                        <th className="px-4 text-end">COUNT</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vulns.length === 0 && (
-                        <tr><td colSpan={3} className="text-center text-muted py-4">No vulnerabilities found yet. Run a scan to see results.</td></tr>
-                      )}
-                      {vulns.slice(0, 10).map(v => {
-                        const sev = (v.severity || 'low').toLowerCase();
-                        const badgeColor = sev === 'critical' ? 'danger' : sev === 'high' ? 'warning' : sev === 'medium' ? 'primary' : 'secondary';
-                        const barColor = sev === 'critical' ? '#EF4444' : sev === 'high' ? '#F59E0B' : sev === 'medium' ? '#3B82F6' : '#64748b';
-                        const barWidth = Math.min(100, Math.max(5, (vulns.filter(x => x.severity?.toLowerCase() === sev).length) * 10));
-                        return (
-                          <tr key={v.id || v.vulnerability_id}>
-                            <td className="px-4">
-                              <span className={`badge bg-${badgeColor} text-uppercase px-2 py-1`}>{sev}</span>
-                            </td>
-                            <td className="small fw-semibold">{v.finding || v.title || v.vulnerability_id || v.cve || 'Unknown'}</td>
-                            <td className="px-4">
-                              <div className="d-flex align-items-center justify-content-end gap-2">
-                                <div style={{ width: '80px', height: '8px', background: '#475569', borderRadius: '4px' }}>
-                                  <div style={{ width: `${barWidth}%`, height: '100%', background: barColor, borderRadius: '4px' }}></div>
-                                </div>
-                                <span className="small fw-bold">{vulns.filter(x => x.severity?.toLowerCase() === sev).length}</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </Table>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
-
-
-
-        <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
+<Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
           <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">
             <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Domain Scan Control</h5>
             <span className="text-muted small">Add a domain to auto-scan immediately, schedule morning/night scans, or run a quick scan anytime.</span>
@@ -831,11 +690,11 @@ const DashboardPage = () => {
             <Form onSubmit={handleAddDomain}>
               <Row className="g-3 align-items-end">
                 <Col md={5}>
-                  <Form.Label className="small text-muted fw-semibold">Domain</Form.Label>
+                  <Form.Label className="small text-muted fw-semibold">Enter URL or Domain to Analyze</Form.Label>
                   <Form.Control
                     value={domainInput}
                     onChange={(e) => setDomainInput(e.target.value)}
-                    placeholder="example.com"
+                    placeholder="e.g. example.com or https://example.com"
                     style={{ borderRadius: '10px' }}
                   />
                 </Col>
@@ -1417,325 +1276,103 @@ const DashboardPage = () => {
       </div>
 
       {/* START SANITIZED SCANNING WIZARD MODAL */}
-      <Modal show={showScanModal} onHide={() => !isScanning && setShowScanModal(false)} centered className="cyber-modal">
-        {/* Scoped cyberpunk styling injected directly */}
+      {/* ADD SURFACE ASSET MODAL */}
+      <Modal show={showScanModal} onHide={() => setShowScanModal(false)} centered className="cyber-modal">
         <style>{`
-          /* Pulsing radar scanner effect */
-          @keyframes scanPing {
-            0% {
-              transform: scale(0.9);
-              opacity: 1;
-            }
-            100% {
-              transform: scale(2.4);
-              opacity: 0;
-            }
-          }
           .radar-pulse-ring {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
             border: 2px solid #3b82f6;
             animation: scanPing 2s cubic-bezier(0.21, 0.53, 0.56, 0.8) infinite;
           }
           .radar-pulse-ring-delayed {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
             border: 2px solid #a855f7;
             animation: scanPing 2s cubic-bezier(0.21, 0.53, 0.56, 0.8) infinite;
             animation-delay: 1s;
           }
-
-          /* Cyber holographic progress bar sweep */
-          @keyframes scannerSweep {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-          .cyber-progress-bar {
-            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #3b82f6) !important;
-            background-size: 300% 300% !important;
-            animation: scannerSweep 2s ease infinite !important;
-            box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
-          }
-
-          /* Cyber option cards */
-          .cyber-option-card {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
-            background: var(--card-bg, #ffffff);
-            cursor: pointer;
-            border-radius: 12px;
-          }
-          .cyber-option-card:hover {
-            transform: translateY(-4px);
-            border-color: #3b82f6 !important;
-            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.12);
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.02), rgba(139, 92, 246, 0.02)) !important;
-          }
-          .cyber-option-card-cyan:hover {
-            border-color: #06b6d4 !important;
-            box-shadow: 0 10px 25px rgba(6, 182, 212, 0.12);
-            background: linear-gradient(135deg, rgba(6, 182, 212, 0.02), rgba(59, 130, 246, 0.02)) !important;
-          }
-
-          /* Terminal log styling */
-          .cyber-terminal {
-            font-family: 'Courier New', Courier, monospace;
-            background: #0f172a !important;
-            color: #38bdf8 !important;
-            border: 1px solid #1e293b;
-            border-radius: 8px;
-            height: 180px;
-            overflow-y: auto;
-            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
-          }
-          .cyber-terminal::-webkit-scrollbar {
-            width: 6px;
-          }
-          .cyber-terminal::-webkit-scrollbar-track {
-            background: #0f172a;
-          }
-          .cyber-terminal::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 3px;
-          }
-          .cyber-terminal::-webkit-scrollbar-thumb:hover {
-            background: #475569;
-          }
-          .terminal-sys { color: #94a3b8; }
-          .terminal-success { color: #4ade80; font-weight: bold; }
-          .terminal-warn { color: #facc15; }
-          .terminal-crit { color: #f87171; font-weight: bold; }
-          .terminal-info { color: #38bdf8; }
-
-          /* Pulse status indicators */
-          @keyframes cyberBlink {
-            0%, 100% { opacity: 0.5; }
-            50% { opacity: 1; }
-          }
-          .cyber-blink-node {
-            animation: cyberBlink 1.5s infinite;
+          @keyframes scanPing {
+            0% { transform: scale(0.9); opacity: 1; }
+            100% { transform: scale(2.4); opacity: 0; }
           }
         `}</style>
 
-        <Modal.Header closeButton={!isScanning} style={{ borderBottom: '1px solid var(--border-color, rgba(0, 0, 0, 0.08))' }}>
+        <Modal.Header closeButton style={{ borderBottom: '1px solid var(--border-color, rgba(0, 0, 0, 0.08))' }}>
           <Modal.Title className="fw-bold font-monospace text-uppercase" style={{ fontSize: '1.05rem', letterSpacing: '0.5px' }}>
-            {isScanning ? (
-              <span className="d-flex align-items-center gap-2">
-                <Spinner animation="grow" size="sm" variant="danger" className="cyber-blink-node" style={{ width: '8px', height: '8px' }} />
-                <span>Reconnaissance Sequence Active</span>
-              </span>
-            ) : (
-              <span>Add &amp; Scan Surface Asset</span>
-            )}
+            <span>Scan New Target</span>
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-4" style={{ backgroundColor: 'var(--body-bg, #fcfcfc)' }}>
-          
-          {isScanning ? (
-            <div className="text-center py-2">
-              <div className="d-flex align-items-center justify-content-center gap-2 mb-3">
-                <div className="bg-danger rounded-circle cyber-blink-node" style={{ width: '10px', height: '10px', boxShadow: '0 0 8px #ef4444' }}></div>
-                <h5 className="fw-bold mb-0 text-uppercase font-monospace tracking-wider" style={{ color: 'var(--text-color, #1a1a1a)', fontSize: '1rem' }}>Active Recon Matrix</h5>
+        <Modal.Body className="p-4" style={{ backgroundColor: 'var(--body-bg, #fcfcfc)' }}>          
+          {/* Wizard Step 1: Input subdomain / name check */}
+          {wizardStep === "input_subdomain" && (
+            <Form onSubmit={handleWizardSubmit}>
+              <div className="text-center mb-4 position-relative py-3">
+                <div className="mx-auto position-relative mb-2" style={{ width: '80px', height: '80px' }}>
+                  <div className="radar-pulse-ring"></div>
+                  <div className="radar-pulse-ring-delayed"></div>
+                  <div className="position-absolute top-50 start-50 translate-middle bg-primary rounded-circle d-flex align-items-center justify-content-center text-white shadow-lg" style={{ width: '48px', height: '48px', zIndex: 3 }}>
+                    <i className="bi bi-globe fs-4"></i>
+                  </div>
+                </div>
+                <h5 className="fw-bold mt-3 mb-1" style={{ color: 'var(--text-color, #1a1a1a)' }}>Target Asset Entry</h5>
+                <p className="text-muted small px-3 mb-0">Enter a domain or URL to run a full attack surface scan with all available cyber tools.</p>
               </div>
+
+              <Form.Group className="mb-3">
+                <Form.Label className="small text-muted fw-semibold font-monospace">ENTER DOMAIN / URL TO SCAN</Form.Label>
+                <Form.Control 
+                  type="text" 
+                  placeholder="e.g. example.com or https://example.com" 
+                  value={inputSubdomainName}
+                  onChange={(e) => setInputSubdomainName(e.target.value)}
+                  required
+                  className="fs-6"
+                  style={{ height: '48px', borderRadius: '12px', border: '1px solid var(--border-color, rgba(0, 0, 0, 0.12))' }}
+                />
+                <Form.Text className="text-muted small mt-2 d-block">
+                  The scan will perform subdomain discovery, live host probing, technology detection, port scanning, vulnerability scanning, SSL checks, and email security analysis.
+                </Form.Text>
+              </Form.Group>
               
-              <p className="small text-muted mb-4">
-                Probing host: <code className="text-primary font-monospace">{scanTargetName}</code>
-              </p>
+              <Button 
+                type="submit" 
+                variant="primary" 
+                className="w-100 py-2.5 mt-2 fw-semibold d-flex align-items-center justify-content-center gap-2" 
+                style={{ borderRadius: '12px', height: '48px' }}
+                disabled={!inputSubdomainName.trim()}
+              >
+                <span>Start Scan</span>
+                <i className="bi bi-arrow-right-short fs-4"></i>
+              </Button>
+            </Form>
+          )}
 
-              {/* 3-card stats block */}
-              <div className="row g-2 mb-4">
-                <div className="col-4">
-                  <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.18)', backdropFilter: 'blur(4px)' }}>
-                    <div className="text-muted fw-semibold font-monospace" style={{ fontSize: '0.68rem' }}>PIPELINE STEPS</div>
-                    <div className="h4 mb-0 fw-bold text-primary font-monospace">6</div>
-                  </div>
-                </div>
-                <div className="col-4">
-                  <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.18)', backdropFilter: 'blur(4px)' }}>
-                    <div className="text-muted fw-semibold font-monospace" style={{ fontSize: '0.68rem' }}>COMPLETED</div>
-                    <div className="h4 mb-0 fw-bold text-success font-monospace">{scanPhaseIndex}</div>
-                  </div>
-                </div>
-                <div className="col-4">
-                  <div className="p-2.5 rounded-3 text-center" style={{ backgroundColor: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.18)', backdropFilter: 'blur(4px)' }}>
-                    <div className="text-muted fw-semibold font-monospace" style={{ fontSize: '0.68rem' }}>PENDING</div>
-                    <div className="h4 mb-0 fw-bold text-warning font-monospace">{6 - scanPhaseIndex}</div>
-                  </div>
-                </div>
+          {/* Wizard Step 2: Choose existing vs new domain */}
+          {wizardStep === "ask_domain_type" && (
+            <div>
+              <div className="text-center mb-4">
+                <h5 className="fw-bold mb-1" style={{ color: 'var(--text-color, #1a1a1a)' }}>Parent Domain Selection</h5>
+                <p className="text-muted small mb-0">Construct target asset node tree for: <code className="text-primary font-monospace">{inputSubdomainName}</code></p>
               </div>
 
-              {/* Progress bar */}
-              <div className="mb-4">
-                <div className="d-flex justify-content-between mb-1 small text-muted font-monospace">
-                  <span>recon_engine.bin</span>
-                  <span>{scanProgress}%</span>
-                </div>
-                <div className="progress" style={{ height: '10px', background: 'var(--input-border, rgba(0, 0, 0, 0.08))', borderRadius: '6px' }}>
-                  <div className="progress-bar progress-bar-striped progress-bar-animated cyber-progress-bar" style={{ width: `${scanProgress}%`, borderRadius: '6px' }}></div>
-                </div>
-              </div>
-
-              {/* Live Cyber Terminal Console */}
-              <div className="mb-4">
-                <div className="text-start mb-1 small text-muted font-monospace d-flex align-items-center gap-2">
-                  <i className="bi bi-terminal text-primary"></i>
-                  <span>Recon Live Terminal Logs</span>
-                </div>
-                <div className="cyber-terminal p-3 text-start" id="cyber-terminal-logs">
-                  {getSimulatedScanLogs(scanTargetName, scanPhaseIndex).map((log, lidx) => (
-                    <div key={lidx} className={`mb-1 small terminal-${log.type}`}>
-                      {log.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* System Stepper Timeline */}
-              <div className="d-flex flex-column gap-2 text-start p-3 rounded-3 border" style={{ backgroundColor: 'var(--card-bg, #ffffff)', borderColor: 'var(--border-color, rgba(0, 0, 0, 0.08))' }}>
-                <span className="small text-muted fw-bold font-monospace mb-1 d-block">CONCURRENT RECON MODULES</span>
-                {[
-                  "Initializing Passive Discovery (Subfinder, Amass)",
-                  "Resolving DNS & IP Records",
-                  "Scanning Open Ports (80, 443, 8080)",
-                  "Crawling Web Directories & Hidden Files",
-                  "Checking Technology signatures & frameworks",
-                  "Running Deep Vulnerability Scans (OWASP Top 10)"
-                ].map((phaseName, idx) => {
-                  let icon, color, weight, bg;
-                  if (scanPhaseIndex > idx) {
-                    icon = <i className="bi bi-check-circle-fill text-success" style={{ fontSize: '0.9rem' }}></i>;
-                    color = 'var(--text-color, #1a1a1a)';
-                    weight = '500';
-                    bg = 'rgba(16, 185, 129, 0.05)';
-                  } else if (scanPhaseIndex === idx) {
-                    icon = <Spinner animation="border" size="sm" variant="primary" style={{ width: '12px', height: '12px', borderWidth: '1.8px' }} />;
-                    color = '#3b82f6';
-                    weight = '600';
-                    bg = 'rgba(59, 130, 246, 0.08)';
-                  } else {
-                    icon = <i className="bi bi-circle text-muted" style={{ fontSize: '0.9rem' }}></i>;
-                    color = 'var(--text-secondary, #718096)';
-                    weight = '400';
-                    bg = 'transparent';
-                  }
-                  return (
-                    <div key={idx} className="d-flex align-items-center gap-3 p-2 rounded-2" style={{ backgroundColor: bg, transition: 'all 0.2s ease', border: scanPhaseIndex === idx ? '1px dashed rgba(59, 130, 246, 0.3)' : '1px solid transparent' }}>
-                      <div style={{ width: '18px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>{icon}</div>
-                      <span style={{ color, fontWeight: weight, fontSize: '0.78rem' }} className="font-monospace">{phaseName}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Wizard Step 1: Input subdomain / name check */}
-              {wizardStep === "input_subdomain" && (
-                <Form onSubmit={handleWizardSubmit}>
-                  <div className="text-center mb-4 position-relative py-3">
-                    {/* SVG Radar animation */}
-                    <div className="mx-auto position-relative mb-2" style={{ width: '80px', height: '80px' }}>
-                      <div className="radar-pulse-ring"></div>
-                      <div className="radar-pulse-ring-delayed"></div>
-                      <div className="position-absolute top-50 start-50 translate-middle bg-primary rounded-circle d-flex align-items-center justify-content-center text-white shadow-lg" style={{ width: '48px', height: '48px', zIndex: 3 }}>
-                        <i className="bi bi-globe fs-4"></i>
-                      </div>
-                    </div>
-                    <h5 className="fw-bold mt-3 mb-1" style={{ color: 'var(--text-color, #1a1a1a)' }}>Target Asset Entry</h5>
-                    <p className="text-muted small px-3 mb-0">Scan new subdomains and run high-intelligence surface recon sweeps across target hosts.</p>
-                  </div>
-
-                  <Form.Group className="mb-3">
-                    <Form.Label className="small text-muted fw-semibold font-monospace">ENTER DOMAIN / SUBDOMAIN TARGET</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      placeholder="e.g. portal.example.com" 
-                      value={inputSubdomainName}
-                      onChange={(e) => setInputSubdomainName(e.target.value)}
-                      required
-                      className="fs-6"
-                      style={{ height: '48px', borderRadius: '12px', border: '1px solid var(--border-color, rgba(0, 0, 0, 0.12))' }}
-                    />
-                    <Form.Text className="text-muted small mt-2 d-block">
-                      We will check if this asset exists in our active footprint registry before initiating discovery scanning.
-                    </Form.Text>
-                  </Form.Group>
-                  
-                  <Button 
-                    type="submit" 
-                    variant="primary" 
-                    className="w-100 py-2.5 mt-2 fw-semibold d-flex align-items-center justify-content-center gap-2" 
-                    style={{ borderRadius: '12px', height: '48px' }}
-                    disabled={!inputSubdomainName.trim()}
+              <div className="row g-3 mb-4">
+                <div className="col-6">
+                  <div 
+                    className="cyber-option-card cyber-option-card-cyan p-4 h-100 text-center d-flex flex-column justify-content-between" 
+                    onClick={() => setWizardStep("select_existing")}
                   >
-                    <span>Check Footprint Status</span>
-                    <i className="bi bi-arrow-right-short fs-4"></i>
-                  </Button>
-                </Form>
-              )}
-
-              {/* Wizard Step 1.5: Confirm Rescan */}
-              {wizardStep === "confirm_rescan" && (
-                <div className="text-center py-2">
-                  <div className="mx-auto mb-3 bg-warning-subtle text-warning rounded-circle d-flex align-items-center justify-content-center shadow-sm" style={{ width: '64px', height: '64px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
-                    <i className="bi bi-shield-exclamation fs-2 text-warning"></i>
-                  </div>
-                  
-                  <h5 className="fw-bold" style={{ color: 'var(--text-color, #1a1a1a)' }}>Host Exists In Footprint</h5>
-                  
-                  <div className="p-3 my-4 border rounded-3 text-center" style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)', borderColor: 'rgba(245, 158, 11, 0.25)' }}>
-                    <span className="small text-muted d-block mb-1">DUPLICATE ASSET MATCH</span>
-                    <code className="text-warning fw-bold fs-6 font-monospace" style={{ wordBreak: 'break-all' }}>{scanTargetName}</code>
-                  </div>
-
-                  <p className="text-muted small mb-4">
-                    This subdomain is already indexed and cataloged in your active security ledger. Do you want to run a complete refresh scan on this host?
-                  </p>
-
-                  <div className="d-flex gap-2">
-                    <Button variant="outline-secondary" className="w-50 py-2.5 fw-semibold" onClick={() => setWizardStep("input_subdomain")} style={{ borderRadius: '12px' }}>
-                      Cancel
-                    </Button>
-                    <Button variant="primary" className="w-50 py-2.5 fw-semibold d-flex align-items-center justify-content-center gap-1" onClick={() => runSimulatedScan(scanTargetName)} style={{ borderRadius: '12px' }}>
-                      <i className="bi bi-activity"></i>
-                      <span>Yes, Rescan</span>
-                    </Button>
+                    <div>
+                      <div className="text-info mb-3 mx-auto bg-info-subtle rounded-circle d-flex align-items-center justify-content-center" style={{ width: '48px', height: '48px' }}>
+                        <i className="bi bi-folder-check fs-4"></i>
+                      </div>
+                      <h6 className="fw-bold mb-2" style={{ color: 'var(--text-color, #1a1a1a)' }}>Existing Root</h6>
+                      <p className="text-muted mb-0" style={{ fontSize: '0.72rem', lineHeight: '1.3' }}>
+                        Map this subdomain prefix to one of your currently registered parent domains.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              )}
-
-              {/* Wizard Step 2: Choose existing vs new domain */}
-              {wizardStep === "ask_domain_type" && (
-                <div>
-                  <div className="text-center mb-4">
-                    <h5 className="fw-bold mb-1" style={{ color: 'var(--text-color, #1a1a1a)' }}>Parent Domain Selection</h5>
-                    <p className="text-muted small mb-0">Construct target asset node tree for: <code className="text-primary font-monospace">{inputSubdomainName}</code></p>
-                  </div>
-
-                  <div className="row g-3 mb-4">
-                    <div className="col-6">
-                      <div 
-                        className="cyber-option-card cyber-option-card-cyan p-4 h-100 text-center d-flex flex-column justify-content-between" 
-                        onClick={() => setWizardStep("select_existing")}
-                      >
-                        <div>
-                          <div className="text-info mb-3 mx-auto bg-info-subtle rounded-circle d-flex align-items-center justify-content-center" style={{ width: '48px', height: '48px' }}>
-                            <i className="bi bi-folder-check fs-4"></i>
-                          </div>
-                          <h6 className="fw-bold mb-2" style={{ color: 'var(--text-color, #1a1a1a)' }}>Existing Root</h6>
-                          <p className="text-muted mb-0" style={{ fontSize: '0.72rem', lineHeight: '1.3' }}>
-                            Map this subdomain prefix to one of your currently registered parent domains.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="col-6">
+                
+                <div className="col-6">
                       <div 
                         className="cyber-option-card p-4 h-100 text-center d-flex flex-column justify-content-between" 
                         onClick={() => setWizardStep("enter_new")}
@@ -1896,127 +1533,211 @@ const DashboardPage = () => {
                   </div>
                 </Form>
               )}
-            </>
-          )}
         </Modal.Body>
       </Modal>
 
       {/* GENERATE REPORT MODAL */}
-      <Modal show={showReportModal} onHide={() => !isGenerating && setShowReportModal(false)} centered className="cyber-modal">
-        <Modal.Header closeButton={!isGenerating} style={{ borderBottom: '1px solid var(--border-color, rgba(0, 0, 0, 0.08))' }}>
+      <Modal show={showReportModal} onHide={() => setShowReportModal(false)} centered className="cyber-modal">
+        <Modal.Header closeButton style={{ borderBottom: '1px solid var(--border-color, rgba(0, 0, 0, 0.08))' }}>
           <Modal.Title className="fw-bold font-monospace text-uppercase" style={{ fontSize: '1.05rem', letterSpacing: '0.5px' }}>
-            {isGenerating ? (
-              <span className="d-flex align-items-center gap-2">
-                <Spinner animation="border" size="sm" variant="info" style={{ width: '12px', height: '12px', borderWidth: '1.8px' }} />
-                <span>Assembling Intel Report</span>
-              </span>
-            ) : reportReady ? (
-              <span>Report Compiled Successfully</span>
-            ) : (
-              <span>Compile Executive Security Report</span>
-            )}
+            <span>Executive Security Report</span>
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="p-4 text-center" style={{ backgroundColor: 'var(--body-bg, #fcfcfc)' }}>
-          {isGenerating ? (
-            <div className="py-4">
-              <Spinner animation="grow" variant="info" className="mb-3 cyber-blink-node" style={{ width: '40px', height: '40px' }} />
-              <h5 className="fw-semibold mb-2">Assembling Assets &amp; Vulnerabilities Data</h5>
-              <div className="mb-3 px-4">
-                <div className="d-flex justify-content-between mb-1 small text-muted font-monospace">
-                  <span>sentinel_compiler.bin</span>
-                  <span>{reportProgress}%</span>
-                </div>
-                <div className="progress" style={{ height: '10px', background: 'var(--input-border, rgba(0, 0, 0, 0.08))', borderRadius: '6px' }}>
-                  <div className="progress-bar progress-bar-striped progress-bar-animated cyber-progress-bar" style={{ width: `${reportProgress}%`, borderRadius: '6px' }}></div>
-                </div>
-              </div>
-              <p className="text-muted small mb-0">Structuring report schema &amp; layout coordinates...</p>
-            </div>
-          ) : reportReady ? (
-            <div>
-              <div className="mx-auto mb-3 bg-success-subtle text-success rounded-circle d-flex align-items-center justify-content-center shadow-sm" style={{ width: '64px', height: '64px', border: '1px solid rgba(22, 163, 74, 0.25)' }}>
-                <FiCheckCircle size={32} className="text-success cyber-glow-success" />
-              </div>
-              <h5 className="fw-bold" style={{ color: 'var(--text-color, #1a1a1a)' }}>Executive PDF Report Ready</h5>
-              <p className="text-muted small px-3 mb-4">
-                Vulnerabilities and asset maps compiled successfully. Click the button below to download the encrypted PDF file instantly.
-              </p>
-              
-              <div className="d-flex gap-2">
-                <Button variant="outline-secondary" className="w-50 py-2.5 fw-semibold" onClick={() => setShowReportModal(false)} style={{ borderRadius: '12px' }}>
-                  Close
-                </Button>
-                <Button 
-                  variant="success" 
-                  className="w-50 py-2.5 fw-semibold d-flex align-items-center justify-content-center gap-2 text-white shadow-lg" 
-                  onClick={handleDownloadPDF} 
-                  style={{ 
-                    borderRadius: '12px',
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
-                  }}
-                >
-                  <FiDownload size={16} />
-                  <span>Download PDF</span>
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <FiDownload size={45} className="text-info mb-3" />
-              <h5 className="fw-bold" style={{ color: 'var(--text-color, #1a1a1a)' }}>Generate Comprehensive Audit Report</h5>
-              <p className="text-muted small mb-4">
-                Download a premium executive PDF report listing all discovered vulnerabilities, open ports, and certificates grouped by severity levels.
-              </p>
-              <Button 
-                variant="info" 
-                className="text-white w-100 py-2.5 fw-semibold d-flex align-items-center justify-content-center gap-2" 
-                onClick={handleGenerateReport} 
-                style={{ 
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
-                  boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)'
-                }}
-              >
-                <span>Compile Report</span>
-                <i className="bi bi-cpu fs-5"></i>
-              </Button>
-            </div>
-          )}
+          <div>
+            <FiDownload size={45} className="text-info mb-3" />
+            <h5 className="fw-bold" style={{ color: 'var(--text-color, #1a1a1a)' }}>Download Comprehensive Audit Report</h5>
+            <p className="text-muted small mb-4">
+              Generate and download a PDF report listing all discovered vulnerabilities, open ports, subdomains, and certificates from your scans.
+            </p>
+            <Button 
+              variant="info" 
+              className="text-white w-100 py-2.5 fw-semibold d-flex align-items-center justify-content-center gap-2" 
+              onClick={() => { handleDownloadPDF(true); setShowReportModal(false); }}
+              style={{ 
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
+                boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)'
+              }}
+            >
+              <FiDownload size={16} />
+              <span>Download PDF Now</span>
+            </Button>
+          </div>
         </Modal.Body>
       </Modal>
 
       {/* RUN SECURITY CHECK MODAL */}
-      <Modal show={showCheckModal} onHide={() => !isChecking && setShowCheckModal(false)} centered>
-        <Modal.Header closeButton={!isChecking}>
-          <Modal.Title className="fw-semibold">Integrity Compliance Scan</Modal.Title>
+      <Modal show={showCheckModal} onHide={() => setShowCheckModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title className="fw-semibold">Run Scan to Check</Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-4">
-          {!isChecking ? (
-            <div className="text-center">
-              <FiShield size={45} className="text-success mb-3" />
-              <h5>Perform System Audit Check</h5>
-              <p className="text-muted small">Validates SSL settings, exposed ports, framework compliance, and CVE logs across scanned targets.</p>
-              <Button variant="success" className="w-100 mt-2" onClick={handleRunSecurityCheck} style={{ borderRadius: '10px' }}>
-                Execute System Check
-              </Button>
-            </div>
-          ) : (
-            <div>
-              <h5 className="fw-semibold mb-2 text-center">Executing Compliance Audit</h5>
-              <div className="progress mb-3" style={{ height: '8px' }}>
-                <div className="progress-bar bg-success progress-bar-striped progress-bar-animated" style={{ width: `${checkProgress}%` }}></div>
-              </div>
-              <div style={{ background: '#1e293b', padding: '12px 16px', borderRadius: '10px', maxHeight: '180px', overflowY: 'auto' }}>
-                {checkLogs.map((log, index) => (
-                  <div key={index} className="text-success small font-monospace mb-1">
-                    &gt; {log}
+        <Modal.Body className="p-4 text-center">
+          <FiShield size={45} className="text-success mb-3" />
+          <h5>Perform a Security Scan</h5>
+          <p className="text-muted small">Enter a domain in the Domain Scan Control section above and click Quick Scan to run a full security assessment with all available tools.</p>
+          <Button variant="success" className="w-100 mt-2" onClick={() => { setShowCheckModal(false); }} style={{ borderRadius: '10px' }}>
+            Got it
+          </Button>
+        </Modal.Body>
+      </Modal>
+
+      {/* SUBSCRIPTION PLANS MODAL */}
+      <Modal show={showSubscriptionModal} onHide={() => setShowSubscriptionModal(false)} size="lg" centered className="cyber-modal">
+        <Modal.Header closeButton style={{ borderBottom: '1px solid var(--border-color, rgba(0, 0, 0, 0.08))' }}>
+          <Modal.Title className="fw-bold font-monospace text-uppercase" style={{ fontSize: '1.05rem', letterSpacing: '0.5px' }}>
+            <span>Sentinel Subscription Plans</span>
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="p-4" style={{ backgroundColor: 'var(--body-bg, #fcfcfc)' }}>
+          <div className="text-center mb-4">
+            <h4 className="fw-bold mb-1" style={{ color: 'var(--text-color, #1a1a1a)' }}>Unlock Unlimited Scanning Capabilities</h4>
+            <p className="text-muted small">You have reached the maximum limit of **1 domain** on the Free Tier. Choose a premium plan to monitor more assets.</p>
+          </div>
+          
+          <Row className="g-4 justify-content-center">
+            {/* Free Plan Card */}
+            <Col md={4}>
+              <Card className="h-100 border-0 shadow-sm" style={{
+                borderRadius: '16px',
+                background: 'var(--header-bg)',
+                border: userPlan === 'Free' ? '2px solid #64748b' : '1px solid var(--header-border)',
+                transition: 'all 0.3s ease'
+              }}>
+                <Card.Body className="d-flex flex-column p-4">
+                  <div className="mb-3">
+                    <Badge bg="secondary" className="mb-2">Free Tier</Badge>
+                    <h3 className="fw-bold mb-0 text-dark">$0<span className="fs-6 text-muted font-normal" style={{ fontWeight: 'normal', fontSize: '0.85rem' }}>/mo</span></h3>
+                    <p className="small text-muted mt-1">Basic passive security mapping</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <hr style={{ opacity: 0.1 }} />
+                  <ul className="list-unstyled flex-grow-1 mb-4" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2"></i>Monitor 1 Domain</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2"></i>Passive Subdomains</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2"></i>Weekly Updates</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2"></i>Standard Alerts</li>
+                  </ul>
+                  <Button
+                    variant="outline-secondary"
+                    className="w-100 py-2.5 fw-semibold"
+                    disabled={userPlan === 'Free'}
+                    onClick={() => {
+                      setUserPlan('Free');
+                      localStorage.setItem('userPlan', 'Free');
+                      window.dispatchEvent(new Event('userLogin')); // Refresh header plan badge
+                      setShowSubscriptionModal(false);
+                      setActivities(prev => ['Downgraded to Free Tier plan', ...prev]);
+                    }}
+                    style={{ borderRadius: '12px' }}
+                  >
+                    {userPlan === 'Free' ? 'Current Plan' : 'Select Free'}
+                  </Button>
+                </Card.Body>
+              </Card>
+            </Col>
+
+            {/* Pro Plan Card */}
+            <Col md={4}>
+              <Card className="h-100 border-0 shadow-lg position-relative" style={{
+                borderRadius: '16px',
+                background: 'var(--header-bg)',
+                border: userPlan === 'Pro' ? '2px solid var(--accent-blue)' : '2px solid rgba(59, 130, 246, 0.4)',
+                boxShadow: '0 8px 32px rgba(59, 130, 246, 0.15)',
+                transition: 'all 0.3s ease'
+              }}>
+                <div className="position-absolute px-3 py-1 bg-primary text-white rounded-pill small fw-semibold" style={{
+                  top: '-12px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  fontSize: '0.72rem',
+                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+                  zIndex: 10
+                }}>
+                  Best Value
+                </div>
+                <Card.Body className="d-flex flex-column p-4">
+                  <div className="mb-3">
+                    <Badge bg="primary" className="mb-2">Pro Tier</Badge>
+                    <h3 className="fw-bold mb-0 text-primary">$49<span className="fs-6 text-muted font-normal" style={{ fontWeight: 'normal', fontSize: '0.85rem' }}>/mo</span></h3>
+                    <p className="small text-muted mt-1">Advanced scan control & reports</p>
+                  </div>
+                  <hr style={{ opacity: 0.1 }} />
+                  <ul className="list-unstyled flex-grow-1 mb-4" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <li className="mb-2"><i className="bi bi-check2 text-primary me-2"></i>Monitor 10 Domains</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-primary me-2"></i>Active Port Scans</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-primary me-2"></i>Daily Scans</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-primary me-2"></i>PDF Intel Reports</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-primary me-2"></i>Slack / Alert Sync</li>
+                  </ul>
+                  <Button
+                    variant="primary"
+                    className="w-100 py-2.5 fw-semibold text-white shadow-sm"
+                    disabled={userPlan === 'Pro'}
+                    onClick={() => {
+                      setUserPlan('Pro');
+                      localStorage.setItem('userPlan', 'Pro');
+                      window.dispatchEvent(new Event('userLogin')); // Refresh header plan badge
+                      setShowSubscriptionModal(false);
+                      setActivities(prev => ['Successfully upgraded to Pro Plan!', ...prev]);
+                      alert('Upgrade successful! You are now subscribed to the Pro Plan. You can now monitor up to 10 domains.');
+                    }}
+                    style={{
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+                    }}
+                  >
+                    {userPlan === 'Pro' ? 'Current Plan' : 'Upgrade to Pro'}
+                  </Button>
+                </Card.Body>
+              </Card>
+            </Col>
+
+            {/* Enterprise Plan Card */}
+            <Col md={4}>
+              <Card className="h-100 border-0 shadow-sm" style={{
+                borderRadius: '16px',
+                background: 'var(--header-bg)',
+                border: userPlan === 'Enterprise' ? '2px solid #8b5cf6' : '1px solid var(--header-border)',
+                transition: 'all 0.3s ease'
+              }}>
+                <Card.Body className="d-flex flex-column p-4">
+                  <div className="mb-3">
+                    <Badge bg="info" className="mb-2" style={{ backgroundColor: '#8b5cf6' }}>Enterprise</Badge>
+                    <h3 className="fw-bold mb-0 text-dark" style={{ color: '#8b5cf6' }}>$199<span className="fs-6 text-muted font-normal" style={{ fontWeight: 'normal', fontSize: '0.85rem' }}>/mo</span></h3>
+                    <p className="small text-muted mt-1">Continuous security coverage</p>
+                  </div>
+                  <hr style={{ opacity: 0.1 }} />
+                  <ul className="list-unstyled flex-grow-1 mb-4" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2" style={{ color: '#8b5cf6' }}></i>Unlimited Domains</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2" style={{ color: '#8b5cf6' }}></i>24/7 Continuous Scanning</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2" style={{ color: '#8b5cf6' }}></i>Shodan & Censys Sync</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2" style={{ color: '#8b5cf6' }}></i>Nuclei Custom templates</li>
+                    <li className="mb-2"><i className="bi bi-check2 text-success me-2" style={{ color: '#8b5cf6' }}></i>Dedicated Support</li>
+                  </ul>
+                  <Button
+                    variant="outline-secondary"
+                    className="w-100 py-2.5 fw-semibold"
+                    disabled={userPlan === 'Enterprise'}
+                    onClick={() => {
+                      setUserPlan('Enterprise');
+                      localStorage.setItem('userPlan', 'Enterprise');
+                      window.dispatchEvent(new Event('userLogin')); // Refresh header plan badge
+                      setShowSubscriptionModal(false);
+                      setActivities(prev => ['Successfully upgraded to Enterprise Plan!', ...prev]);
+                      alert('Upgrade successful! You are now subscribed to the Enterprise Plan. You can now monitor unlimited domains.');
+                    }}
+                    style={{
+                      borderRadius: '12px',
+                      borderColor: '#8b5cf6',
+                      color: '#8b5cf6'
+                    }}
+                  >
+                    {userPlan === 'Enterprise' ? 'Current Plan' : 'Go Enterprise'}
+                  </Button>
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
         </Modal.Body>
       </Modal>
 

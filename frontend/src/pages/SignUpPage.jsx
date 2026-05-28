@@ -73,8 +73,7 @@ const SignUpPage = () => {
       navigate('/');
 
     } catch (err) {
-      console.error('Unexpected error:', err);
-      setError("An unexpected error occurred.");
+      setError(err?.detail || err?.message || err?.error || 'Registration failed. Please try again and ensure the server is running.');
     } finally {
       setIsLoading(false);
     }

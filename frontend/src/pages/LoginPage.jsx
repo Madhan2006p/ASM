@@ -14,7 +14,6 @@ const LoginPage = () => {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     let newValue = type === 'checkbox' ? checked : value;
@@ -40,7 +39,7 @@ const handleSubmit = async (e) => {
     await login(formData.email, formData.password);
     navigate('/');
   } catch (err) {
-    setError(err?.detail || err?.message || err?.error || 'Login failed. Please check your credentials.');
+    setError(err?.detail || err?.message || err?.error || 'Login failed. Please check your credentials and ensure the server is running.');
   } finally {
     setIsLoading(false);
   }

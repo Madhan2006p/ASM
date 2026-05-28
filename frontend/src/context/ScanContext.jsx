@@ -102,9 +102,13 @@ export const ScanProvider = ({ children }) => {
       }, 3000);
       pollRef.current = interval;
     } catch (err) {
-      const msg = err?.message || "Could not start scan on backend";
-      addLog(`[!] Scan failed: ${msg}`, "crit");
-      setScanState(prev => ({ ...prev, isScanning: false, phase: "Scan failed" }));
+      const msg = err?.message || "Backend scan failed. Ensure the server is running.";
+      addLog(`[!] ${msg}`, "crit");
+      setScanState(prev => ({
+        ...prev,
+        isScanning: false,
+        phase: "Scan failed - server unavailable",
+      }));
     }
   }, [addLog]);
 

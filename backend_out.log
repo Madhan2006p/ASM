@@ -1,0 +1,36 @@
+
+[!] PostgreSQL connection failed: connection to server at "localhost" (::1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+
+[!] Falling back to SQLite3 database for robust operation.
+
+Performing system checks...
+
+System check identified no issues (0 silenced).
+May 26, 2026 - 11:29:49
+Django version 5.2.14, using settings 'core.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+
+[!] PostgreSQL connection failed: connection to server at "localhost" (::1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused (0x0000274D/10061)
+	Is the server running on that host and accepting TCP/IP connections?
+
+[!] Falling back to SQLite3 database for robust operation.
+
+Performing system checks...
+
+System check identified no issues (0 silenced).
+May 26, 2026 - 11:43:21
+Django version 5.2.14, using settings 'core.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/

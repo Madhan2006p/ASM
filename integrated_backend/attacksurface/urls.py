@@ -1,0 +1,39 @@
+from django.urls import path
+
+from .views import (
+    ClearDatabaseView,
+    DirectoryListView,
+    DomainQuickScanView,
+    EmailSecurityListView,
+    EndpointListView,
+    MonitoredDomainListView,
+    PortListView,
+    SSLResultListView,
+    ScanHistoryView,
+    ScanListView,
+    ScanStatusView,
+    ScanTriggerView,
+    SubdomainListView,
+    TechnologyListView,
+    VulnerabilityListView,
+    ToolsHealthView,
+)
+
+urlpatterns = [
+    path("subdomains/", SubdomainListView.as_view(), name="attack-surface-subdomains"),
+    path("endpoints/", EndpointListView.as_view(), name="attack-surface-endpoints"),
+    path("open-ports/", PortListView.as_view(), name="attack-surface-ports"),
+    path("directories/", DirectoryListView.as_view(), name="attack-surface-directories"),
+    path("technologies/", TechnologyListView.as_view(), name="attack-surface-technologies"),
+    path("vulnerabilities/", VulnerabilityListView.as_view(), name="attack-surface-vulnerabilities"),
+    path("ssl-certificates/", SSLResultListView.as_view(), name="attack-surface-ssl"),
+    path("email-security/", EmailSecurityListView.as_view(), name="attack-surface-email"),
+    path("scans/", ScanListView.as_view(), name="attack-surface-scans"),
+    path("domains/", MonitoredDomainListView.as_view(), name="attack-surface-domains"),
+    path("domains/quick-scan/", DomainQuickScanView.as_view(), name="attack-surface-domain-quick-scan"),
+    path("scan/", ScanTriggerView.as_view(), name="attack-surface-scan-trigger"),
+    path("scan/<int:id>/", ScanStatusView.as_view(), name="attack-surface-scan-status"),
+    path("scan-history/", ScanHistoryView.as_view(), name="attack-surface-scan-history"),
+    path("tools-health/", ToolsHealthView.as_view(), name="attacksurface-tools-health"),
+    path("clear-db/", ClearDatabaseView.as_view(), name="attacksurface-clear-db"),
+]

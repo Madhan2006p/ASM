@@ -13,6 +13,8 @@ import OpenPortsPage from "./pages/OpenPortsPage";
 import TechnologiesPage from "./pages/TechnologiesPage";
 import SSLCertificatePage from "./pages/SSLCertificatePage";
 import VulnerabilitiesPage from "./pages/VulnerabilitiesPage";
+import ScanHistoryPage from "./pages/ScanHistoryPage";
+import ScanDetailPage from "./pages/ScanDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import Header from "./components/Header";
@@ -36,6 +38,8 @@ function App() {
           <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
           <Route path="/ssl-certificates" element={<SSLCertificatePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/scan-history" element={<ScanHistoryPage />} />
+          <Route path="/scan-detail/:id" element={<ScanDetailPage />} />
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
