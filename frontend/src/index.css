@@ -1,0 +1,119 @@
+/* Global styles are now in theme.css */
+
+:root {
+  --bg-color: #ffffff;
+  --text-color: #000000;
+  --header-bg: rgba(255, 255, 255, 0.85);
+  --header-border: rgba(0, 0, 0, 0.08);
+  --input-bg: #f8f9fa;
+  --input-border: #dee2e6;
+  --input-text: #212529;
+}
+
+body {
+  background-color: var(--bg-color) !important;
+  color: var(--text-color) !important;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.welcome-page {
+  background: var(--bg-color);
+  color: var(--text-color);
+  height: calc(100vh - 70px); /* 100vh minus header height */
+  overflow: hidden;
+}
+
+@keyframes floatAnimation {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+  100% { transform: translateY(0px); }
+}
+
+.hero-image {
+  animation: floatAnimation 4s ease-in-out infinite;
+}
+
+.welcome-input {
+  background-color: var(--input-bg) !important;
+  color: var(--input-text) !important;
+  border-color: var(--input-border) !important;
+  transition: all 0.3s ease;
+}
+
+.welcome-input::placeholder {
+  color: var(--input-text) !important;
+  opacity: 0.6 !important;
+}
+
+.welcome-input:focus {
+  border-color: #4169E1 !important;
+  box-shadow: 0 0 0 0.25rem rgba(65, 105, 225, 0.25) !important;
+  outline: none !important;
+}
+
+.input-group:focus-within .input-group-text,
+.input-group:focus-within .welcome-input {
+  border-color: #4169E1 !important;
+}
+
+.input-group:focus-within {
+  box-shadow: 0 0 0 0.25rem rgba(65, 105, 225, 0.25) !important;
+  border-radius: 0.375rem;
+}
+
+.input-group:focus-within .welcome-input:focus {
+  box-shadow: none !important;
+}
+
+/* Fix browser autofill background color */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px var(--input-bg) inset !important;
+  -webkit-text-fill-color: var(--input-text) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+.btn:focus, .btn:active {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.login-page, .signup-page {
+  overflow: hidden !important;
+  height: calc(100vh - 70px);
+  position: relative;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+}
+
+.login-page::before, .signup-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* Glassmorphism utility classes */
+.glass-effect {
+  background: var(--blur-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--blur-border);
+  box-shadow: var(--shadow-md);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+}

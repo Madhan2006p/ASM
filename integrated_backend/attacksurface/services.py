@@ -1,0 +1,1581 @@
+import json
+import logging
+import os
+import re
+import shutil
+import socket
+import ssl
+import subprocess
+import time
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+from .models import (
+    AttackSurfaceScan,
+    DirectoryResult,
+    EmailSecurityResult,
+    EndpointResult,
+    PortResult,
+    SSLResult,
+    SubdomainResult,
+    TechnologyResult,
+    VulnerabilityResult,
+)
+
+# Cross-module vulnerability deduplication
+from .scanner.vulnerability_scanner import deduplicate_vulnerabilities
+
+WAPPALYZER_AVAILABLE = False
+try:
+    from Wappalyzer import Wappalyzer, WebPage
+    WAPPALYZER_AVAILABLE = True
+except ImportError:
+    pass
+
+# Wappalyzer/header-detected tech names → nuclei tags for targeted scanning
+TECH_TO_TAGS = {
+    "nginx": {"nginx"},
+    "apache": {"apache"},
+    "apache http server": {"apache"},
+    "wordpress": {"wordpress", "wp"},
+    "php": {"php"},
+    "drupal": {"drupal"},
+    "joomla": {"joomla"},
+    "laravel": {"laravel"},
+    "django": {"django"},
+    "flask": {"flask"},
+    "express": {"express"},
+    "react": {"react"},
+    "angular": {"angular"},
+    "vue": {"vue"},
+    "vue.js": {"vue"},
+    "next.js": {"nextjs"},
+    "nuxt.js": {"nuxt"},
+    "jquery": {"jquery"},
+    "cloudflare": {"cloudflare"},
+    "iis": {"iis"},
+    "microsoft iis": {"iis"},
+    "asp.net": {"asp", "microsoft"},
+    "java": {"java", "j2ee"},
+    "openresty": {"openresty"},
+    "caddy": {"caddy"},
+    "gunicorn": {"gunicorn"},
+    "ruby on rails": {"rails"},
+    "shopify": {"shopify"},
+    "tomcat": {"tomcat", "java"},
+    "jenkins": {"jenkins"},
+    "gitlab": {"gitlab"},
+    "jira": {"jira"},
+    "confluence": {"confluence"},
+    "prestashop": {"prestashop"},
+    "magento": {"magento"},
+    "vbulletin": {"vbulletin"},
+    "thinkphp": {"thinkphp"},
+    "spring boot": {"springboot", "spring"},
+    "spring": {"spring", "springboot"},
+    "node.js": {"node"},
+    "python": {"python"},
+    "ruby": {"ruby"},
+    "fastjson": {"fastjson"},
+    "thinkcmf": {"thinkcmf"},
+    "seeyon": {"seeyon"},
+    "weaver": {"weaver"},
+    "yonyou": {"yonyou"},
+    "tongda": {"tongda"},
+    "landray": {"landray"},
+    "sangfor": {"sangfor"},
+    "huawei": {"huawei"},
+    "cisco": {"cisco"},
+    "vmware": {"vmware"},
+    "oracle": {"oracle"},
+    "ibm": {"ibm"},
+    "samsung": {"samsung"},
+    "zabbix": {"zabbix"},
+    "nagios": {"nagios"},
+    "phpmyadmin": {"phpmyadmin"},
+    "phpstudy": {"phpstudy"},
+    "grafana": {"grafana"},
+    "prometheus": {"prometheus"},
+    "kibana": {"kibana"},
+    "elasticsearch": {"elasticsearch"},
+    "redis": {"redis"},
+    "mongodb": {"mongo"},
+    "mysql": {"mysql"},
+    "mariadb": {"mariadb"},
+    "postgresql": {"postgresql"},
+    "rabbitmq": {"rabbitmq"},
+    "kafka": {"kafka"},
+    "docker": {"docker"},
+    "kubernetes": {"kubernetes"},
+    "rancher": {"rancher"},
+    "openshift": {"openshift"},
+    "ansible": {"ansible"},
+    "terraform": {"terraform"},
+    "vault": {"vault"},
+    "consul": {"consul"},
+    "etcd": {"etcd"},
+}
+
+
+def techs_to_nuclei_tags(tech_list):
+    """Map detected technology names to nuclei template tags."""
+    tags = set()
+    seen = set()
+    for tech in tech_list:
+        key = tech.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        # direct lookup
+        if key in TECH_TO_TAGS:
+            tags.update(TECH_TO_TAGS[key])
+        else:
+            # try partial match against known keys
+            matched = False
+            for known_key, known_tags in TECH_TO_TAGS.items():
+                if known_key in key or key in known_key:
+                    tags.update(known_tags)
+                    matched = True
+                    break
+            if not matched:
+                # use the tech name itself as a candidate tag
+                tags.add(key.replace(" ", "-").replace("_", "-"))
+    # always include generic useful tags
+    tags.update({"cve", "misconfiguration", "exposure", "default-login"})
+    return sorted(tags)
+
+
+@lru_cache(maxsize=32)
+def resolve_tool(tool_name, env_var, candidates=None):
+    env_path = os.environ.get(env_var)
+    if env_path and Path(env_path).exists():
+        return env_path
+    path = os.popen(f"which {tool_name} 2>/dev/null").read().strip()
+    if path:
+        return path
+    if isinstance(candidates, str):
+        candidates = [candidates]
+    for c in candidates or []:
+        p = Path(c)
+        if p.exists():
+            return str(p)
+    return None
+
+
+def run_cmd(cmd, timeout=120, input_data=None, env=None):
+    start = time.monotonic()
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, input=input_data,
+            env=env,
+        )
+        elapsed = round(time.monotonic() - start, 3)
+        if r.returncode != 0:
+            logger.warning("run_cmd %s exited %d: %s", cmd[0], r.returncode, r.stderr[:200])
+        return {"stdout": r.stdout or "", "stderr": r.stderr or "", "returncode": r.returncode, "execution_time": elapsed}
+    except FileNotFoundError:
+        elapsed = round(time.monotonic() - start, 3)
+        logger.error("run_cmd %s not found on system", cmd[0])
+        return {"stdout": "", "stderr": f"{cmd[0]} not found", "returncode": -1, "execution_time": elapsed}
+    except subprocess.TimeoutExpired:
+        elapsed = round(time.monotonic() - start, 3)
+        logger.warning("run_cmd %s timed out after %ss", cmd[0], timeout)
+        return {"stdout": "", "stderr": f"Timed out after {timeout}s", "returncode": -1, "execution_time": elapsed}
+
+
+# ── Subfinder ────────────────────────────────────────────────────────────────
+
+try:
+    import dns.resolver
+    DNS_RESOLVER_AVAILABLE = True
+except ImportError:
+    DNS_RESOLVER_AVAILABLE = False
+
+COMMON_SUBDOMAINS = [
+    "www", "mail", "ftp", "admin", "api", "blog", "webmail", "dev", "test",
+    "shop", "app", "m", "mobile", "en", "support", "help", "forum", "news",
+    "wiki", "store", "portal", "status", "cdn", "static", "media", "img",
+    "assets", "download", "downloads", "docs", "jenkins", "jira", "gitlab",
+    "bitbucket", "svn", "git", "vpn", "remote", "owa", "exchange", "lyncdiscover",
+    "autodiscover", "sip", "meet", "confluence", "lms", "moodle", "blackboard",
+    "cpanel", "whm", "webdisk", "cpcalendars", "cpcontacts", "mail1", "mail2",
+    "smtp", "pop3", "imap", "mx", "ns1", "ns2", "dns1", "dns2", "dns",
+    "direct-connect", "remote-desktop", "rdp", "ssh", "telnet", "sftp",
+    "monitor", "monitoring", "nagios", "zabbix", "grafana", "prometheus",
+    "dashboard", "manager", "management", "console", "panel", "control",
+    "adminer", "phpmyadmin", "phppgadmin", "admin-console", "admin-panel",
+    "backend", "api-dev", "api-staging", "staging", "stage", "beta", "alpha",
+    "demo", "sandbox", "v2", "v1", "v3", "old", "new", "secure",    "ssl",
+    "web", "server", "ns", "mx1", "mx2", "s1", "s2", "ws", "chat", "video",
+    "stream", "live", "tv", "radio", "podcast", "calendar", "cloud",
+    "ecommerce", "partner", "partners", "affiliate", "reseller",
+    "billing", "invoice", "account", "accounts", "profile", "user", "users",
+    "login", "register", "signup", "signin", "auth", "oauth", "sso",
+    "idp", "saml", "openid", "connect", "callback", "redirect", "logout",
+    "search", "sitemap", "robots", "crossdomain", "clientaccesspolicy",
+    "feed", "feeds", "rss", "atom", "xmlrpc", "soap", "wsdl", "graphql",
+    "api-gateway", "gateway", "proxy", "lb", "loadbalancer", "ha",
+    "autoconfig", "autodiscover", "msoid", "mtr", "smtp2", "pop3",
+    "owa1", "owa2", "ecp", "ews", "mapi", "rpc", "rpc2", "nfs", "s3",
+    "s3-bucket", "bucket", "storage", "object", "uploads", "upload",
+    "assets", "fonts", "css", "js", "scripts", "themes", "plugins",
+    "extensions", "modules", "components", "widgets", "blocks",
+    "content", "public", "private", "protected", "config", "configuration",
+    "setup", "install", "installer", "wizard", "firstrun", "init",
+    "migration", "upgrade", "update", "patch", "fix", "hotfix",
+    "backup", "restore", "snapshot", "clone", "replica", "replication",
+    "master", "slave", "primary", "secondary", "standby", "failover",
+    "dr", "disaster-recovery", "bcdr", "continuity",
+    "compliance", "audit", "auditor", "legal", "privacy", "gdpr",
+    "tickets", "helpdesk", "service-desk", "itsm", "servicenow",
+    "splunk", "elk", "elastic", "logstash", "kibana", "log", "logs",
+    "analytics", "stats", "statistics", "usage", "traffic",
+    "metrics", "metric", "alerts", "alert", "notification",
+    "pagerduty", "opsgenie", "victorops", "xmpp", "irc", "slack",
+    "teams", "zoom", "webex", "gotomeeting", "adobeconnect",
+    "bigbluebutton", "jitsi", "meet", "talk", "phone", "call",
+    "voip", "sip", "h323", "rtp", "rtsp", "streaming",
+    "vnc", "teamviewer", "anydesk", "logmein", "gotoassist",
+    "docker", "k8s", "kubernetes", "swarm", "nomad", "consul",
+    "etcd", "vault", "puppet", "chef", "ansible", "salt",
+    "saltstack", "terraform", "packer", "vagrant", "rancher",
+    "openshift", "okd", "crunchy", "pgadmin", "mysql", "mariadb",
+    "mongo", "mongodb", "redis", "memcached", "couchdb", "cassandra",
+    "elasticsearch", "solr", "sphinx", "neo4j", "orientdb",
+    "influxdb", "timescaledb", "citus", "cockroachdb", "yugabyte",
+    "couchbase", "riak", "hbase", "hadoop", "spark", "storm",
+    "kafka", "pulsar", "rabbitmq", "activemq", "nats", "zeromq",
+    "nsq", "sqs", "pubsub", "eventbus", "events", "event",
+    "webhook", "webhooks", "callback", "notify", "notification",
+    "assessment", "assess", "evaluate", "eval", "score",
+    "grade", "review", "check", "verify", "validator", "validation",
+    "compliance-check", "security-scan", "pen-test", "pentest",
+    "audit-server", "scan", "scanner", "recon", "reconnaissance",
+    "hackerone", "bugcrowd", "synack", "intigriti",
+    "attack-surface", "attack", "surface", "exposed",
+    "risk", "risks", "threat", "threats", "vuln", "vulns",
+    "cve", "cves", "exploit", "exploits", "payload",
+    "xss", "sqli", "lfi", "rfi", "ssrf", "csrf", "ssti",
+    "idor", "open-redirect", "redirect",
+    "subdomain-enum", "enum", "discover", "discovery",
+    "asset", "assets", "inventory", "roster",
+    "observatory", "security-headers", "headers",
+    "tls", "ssl-check", "certificate", "certs",
+    "mail", "smtp", "imap", "pop", "mx-backup",
+    "db", "database", "sql", "nosql",
+    "container", "k8s", "cluster", "node",
+    "serverless", "lambda", "function",
+    "mobile", "android", "ios", "flutter",
+    "client", "clients", "customer", "customers",
+    "office", "corp", "internal", "external",
+    "dmz", "bastion", "jump", "jumpbox",
+    "firewall", "waf", "ids", "ips",
+    "elk", "splunk", "sumo", "datadog",
+    "newrelic", "appdynamics", "dynatrace",
+    "jfrog", "artifactory", "nexus", "sonatype",
+    "harbor", "quay", "ecr", "acr", "gcr",
+    "drone", "circleci", "travis", "github-actions",
+    "gitlab-ci", "jenkins-ci", "teamcity",
+    "report", "reports", "export", "dashboard",
+    "health", "healthcheck", "health-check",
+    "heartbeat", "ping", "uptime",
+    "load", "stress", "benchmark", "performance",
+    "integration", "integrations", "webhook-receiver",
+    "callback-url", "callback-urls",
+    "docs", "documentation", "swagger", "openapi",
+    "redoc", "graphql-playground", "graphiql",
+    "hasura", "prisma", "supabase", "firebase",
+    "netlify", "vercel", "heroku", "render",
+    "fly", "railway", "cyclic", "deno",
+    "workers", "cf-workers", "edge",
+]
+
+def run_subfinder(target):
+    """Discover subdomains using DNS resolution of common subdomains."""
+    target = target.strip().lower()
+    if target.startswith("http://") or target.startswith("https://"):
+        target = urlparse(target).hostname or target
+
+    found = set()
+
+    # Try subfinder binary first (quick test — skip if it hangs)
+    exe = resolve_tool("subfinder", "SUBFINDER_PATH",
+                       getattr(settings, "SUBFINDER_PATH", None))
+    if exe:
+        r = run_cmd([exe, "-d", target, "-all", "-silent", "-active"], timeout=8)
+        if r["returncode"] == 0:
+            for line in r["stdout"].splitlines():
+                s = line.strip()
+                if s and s.endswith(target):
+                    found.add(s)
+
+    # DNS-based brute-force using dnspython (parallel, with timeout)
+    if DNS_RESOLVER_AVAILABLE:
+        def _check_domain(domain_to_check):
+            try:
+                answers = dns.resolver.resolve(domain_to_check, "A", lifetime=2)
+                if answers:
+                    return domain_to_check
+            except Exception:
+                try:
+                    answers = dns.resolver.resolve(domain_to_check, "AAAA", lifetime=2)
+                    if answers:
+                        return domain_to_check
+                except Exception:
+                    pass
+            return None
+
+        pool_timeout = 30
+        with ThreadPoolExecutor(max_workers=30) as pool:
+            fut_to_domain = {
+                pool.submit(_check_domain, f"{sub}.{target}"): sub
+                for sub in COMMON_SUBDOMAINS[:150]
+            }
+            for fut in as_completed(fut_to_domain, timeout=pool_timeout):
+                result = fut.result()
+                if result:
+                    found.add(result)
+
+        # Also check the bare domain
+        try:
+            answers = dns.resolver.resolve(target, "A", lifetime=2)
+            if answers:
+                found.add(target)
+        except Exception:
+            pass
+
+    return sorted(found)
+
+
+# ── Live Host Probing (Python httpx) ─────────────────────────────────────────
+
+def probe_url(client, url):
+    """Probe a single URL and return structured data."""
+    try:
+        resp = client.get(url, follow_redirects=True)
+    except Exception:
+        return None
+
+    title = None
+    if resp.text:
+        m = re.search(r'<title[^>]*>(.*?)</title>', resp.text, re.IGNORECASE | re.DOTALL)
+        if m:
+            title = m.group(1).strip()[:200]
+
+    content_type = resp.headers.get("content-type", "")
+    server = resp.headers.get("server", "")
+    techs = []
+    if server:
+        techs.append(server)
+
+    return {
+        "url": str(resp.url),
+        "status_code": resp.status_code,
+        "content_type": content_type,
+        "content_length": len(resp.content),
+        "title": title or "",
+        "tech": techs,
+        "webserver": server,
+        "headers": dict(resp.headers),
+        "body_preview": resp.text[:2000],
+    }
+
+
+def run_httpx(domains):
+    """Probe domains using Python httpx library (no external binary needed)."""
+    if not domains:
+        return []
+
+    targets = list(set(domains[:20]))
+    urls = []
+    for d in targets:
+        if d.startswith("http://") or d.startswith("https://"):
+            urls.append(d)
+        else:
+            urls.append(f"https://{d}")
+            urls.append(f"http://{d}")
+
+    results = []
+    try:
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+        with httpx.Client(verify=False, timeout=timeout) as client:
+            with ThreadPoolExecutor(max_workers=20) as pool:
+                fut_to_url = {pool.submit(probe_url, client, u): u for u in urls}
+                for fut in as_completed(fut_to_url):
+                    try:
+                        data = fut.result()
+                        if data:
+                            results.append(data)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return results
+
+
+# ── Wappalyzer Technology Detection ──────────────────────────────────────────
+
+def run_wappalyzer(targets):
+    """Use python-Wappalyzer for tech stack detection."""
+    if not WAPPALYZER_AVAILABLE or not targets:
+        return []
+
+    try:
+        wappalyzer = Wappalyzer.latest()
+    except Exception:
+        return []
+
+    results = []
+    for t in targets[:10]:
+        url = t if (t.startswith("http://") or t.startswith("https://")) else f"https://{t}"
+        try:
+            webpage = WebPage.new_from_url(url, timeout=15)
+            techs = wappalyzer.analyze(webpage)
+            if techs:
+                host = urlparse(url).hostname or t
+                results.append({
+                    "domain": host,
+                    "url": url,
+                    "technologies": sorted(techs),
+                })
+        except Exception:
+            pass
+    return results
+
+
+# ── Whatweb-like HTTP Header & Meta Analysis ─────────────────────────────────
+
+WHATWEB_COMMON_TECHS = {
+    "nginx": {"name": "Nginx", "category": "Web Server"},
+    "apache": {"name": "Apache HTTP Server", "category": "Web Server"},
+    "cloudflare": {"name": "Cloudflare", "category": "CDN"},
+    "openresty": {"name": "OpenResty", "category": "Web Server"},
+    "iis": {"name": "Microsoft IIS", "category": "Web Server"},
+    "caddy": {"name": "Caddy", "category": "Web Server"},
+    "gunicorn": {"name": "Gunicorn", "category": "Web Server"},
+    "express": {"name": "Express", "category": "Web Framework"},
+    "django": {"name": "Django", "category": "Web Framework"},
+    "flask": {"name": "Flask", "category": "Web Framework"},
+    "rails": {"name": "Ruby on Rails", "category": "Web Framework"},
+    "laravel": {"name": "Laravel", "category": "Web Framework"},
+    "wordpress": {"name": "WordPress", "category": "CMS"},
+    "drupal": {"name": "Drupal", "category": "CMS"},
+    "joomla": {"name": "Joomla", "category": "CMS"},
+    "shopify": {"name": "Shopify", "category": "Ecommerce"},
+    "react": {"name": "React", "category": "JavaScript Framework"},
+    "angular": {"name": "Angular", "category": "JavaScript Framework"},
+    "vue": {"name": "Vue.js", "category": "JavaScript Framework"},
+    "nextjs": {"name": "Next.js", "category": "JavaScript Framework"},
+    "nuxt": {"name": "Nuxt.js", "category": "JavaScript Framework"},
+    "jquery": {"name": "jQuery", "category": "JavaScript Library"},
+}
+
+
+def run_header_tech_analysis(targets, httpx_results):
+    """Analyze HTTP response headers and body for technology fingerprints."""
+    tech_map = {}
+
+    for data in httpx_results:
+        url = data.get("url", "")
+        host = urlparse(url).hostname or ""
+        if not host:
+            continue
+        found = set()
+        server = (data.get("webserver") or "").lower()
+        headers = data.get("headers", {})
+        body = (data.get("body_preview") or "").lower()
+        title = (data.get("title") or "").lower()
+
+        # Server header
+        for key, info in WHATWEB_COMMON_TECHS.items():
+            if key in server:
+                found.add(info["name"])
+            if key in body or key in title:
+                found.add(info["name"])
+
+        # Set-Cookie based detection
+        set_cookie = headers.get("set-cookie", "")
+        if "wordpress" in (set_cookie or "").lower() or "wp-content" in body:
+            found.add("WordPress")
+        if "laravel_session" in set_cookie:
+            found.add("Laravel")
+        if "drupal" in (set_cookie or "").lower():
+            found.add("Drupal")
+        if "PHPSESSID" in set_cookie:
+            found.add("PHP")
+        if "JSESSIONID" in set_cookie:
+            found.add("Java")
+        if "asp.net" in (set_cookie or "").lower() or "aspsessionid" in set_cookie.lower():
+            found.add("ASP.NET")
+
+        # X-Powered-By header
+        xpb = (headers.get("x-powered-by") or "").lower()
+        if "express" in xpb:
+            found.add("Express")
+        if "asp.net" in xpb:
+            found.add("ASP.NET")
+        if "php" in xpb:
+            found.add("PHP")
+        if "django" in xpb:
+            found.add("Django")
+        if "flask" in xpb or "werkzeug" in xpb:
+            found.add("Flask")
+
+        # X-Generator header
+        xgen = (headers.get("x-generator") or "").lower()
+        if "drupal" in xgen:
+            found.add("Drupal")
+        if "wordpress" in xgen:
+            found.add("WordPress")
+
+        if host not in tech_map:
+            tech_map[host] = set()
+        tech_map[host].update(found)
+
+    # Also enrich httpx tech field
+    for data in httpx_results:
+        url = data.get("url", "")
+        host = urlparse(url).hostname or ""
+        if host in tech_map:
+            data["tech"] = list(set(data.get("tech", []) + list(tech_map[host])))
+
+    return tech_map
+
+
+# ── Nmap ─────────────────────────────────────────────────────────────────────
+
+def run_nmap(targets):
+    exe = resolve_tool("nmap", "NMAP_PATH",
+                       getattr(settings, "NMAP_PATH", None))
+    if not exe or not targets:
+        return []
+    targets = targets[:3]
+    args = [exe, "--top-ports", "20", "-Pn", "-T4", "-oX", "-"]
+    if len(targets) == 1:
+        args.append(targets[0])
+    else:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("\n".join(targets))
+            infile = f.name
+        args.extend(["-iL", infile])
+    r = run_cmd(args, timeout=120)
+    if len(targets) > 1:
+        Path(infile).unlink(missing_ok=True)
+    return parse_nmap_xml(r["stdout"])
+
+
+def parse_nmap_xml(xml_output):
+    if not xml_output.strip():
+        return []
+    try:
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_output)
+    except Exception:
+        return []
+    hosts = []
+    for host in root.findall("host"):
+        addr = None
+        for a in host.findall("address"):
+            if a.get("addrtype") in ("ipv4", "ipv6"):
+                addr = a.get("addr")
+                break
+        if not addr:
+            continue
+        hname = host.find("./hostnames/hostname")
+        hostname = hname.get("name") if hname is not None else addr
+        ports = []
+        for p in host.findall("./ports/port"):
+            state = p.find("state")
+            svc = p.find("service")
+            if state is not None and state.get("state") == "open":
+                ports.append({
+                    "port": int(p.get("portid")),
+                    "protocol": p.get("protocol"),
+                    "service": svc.get("name") if svc is not None else None,
+                    "product": svc.get("product") if svc is not None else None,
+                    "version": svc.get("version") if svc is not None else None,
+                })
+        hosts.append({"address": addr, "hostname": hostname, "ports": ports})
+    return hosts
+
+
+# ── Python-based Vulnerability Scanner (no external tools needed) ────────────
+
+SECURITY_HEADER_CHECKS = {
+    "strict-transport-security": {
+        "vulnerability_id": "SEC-HSTS",
+        "severity": "MEDIUM",
+        "cwe": "CWE-319",
+        "finding": "Missing HTTP Strict-Transport-Security (HSTS) header. The site is vulnerable to SSL stripping and man-in-the-middle attacks.",
+    },
+    "x-frame-options": {
+        "vulnerability_id": "SEC-XFO",
+        "severity": "MEDIUM",
+        "cwe": "CWE-1021",
+        "finding": "Missing X-Frame-Options header. The site is vulnerable to clickjacking attacks.",
+    },
+    "x-content-type-options": {
+        "vulnerability_id": "SEC-XCTO",
+        "severity": "LOW",
+        "cwe": "CWE-16",
+        "finding": "Missing X-Content-Type-Options header. Browser may perform MIME type sniffing.",
+    },
+    "content-security-policy": {
+        "vulnerability_id": "SEC-CSP",
+        "severity": "MEDIUM",
+        "cwe": "CWE-1021",
+        "finding": "Missing Content-Security-Policy header. Increases risk of XSS and data injection attacks.",
+    },
+    "x-xss-protection": {
+        "vulnerability_id": "SEC-XSS",
+        "severity": "LOW",
+        "cwe": "CWE-79",
+        "finding": "Missing X-XSS-Protection header. Legacy browser XSS filter may not be enabled.",
+    },
+    "referrer-policy": {
+        "vulnerability_id": "SEC-REFERRER",
+        "severity": "LOW",
+        "cwe": "CWE-200",
+        "finding": "Missing Referrer-Policy header. URL referral information may be leaked.",
+    },
+    "permissions-policy": {
+        "vulnerability_id": "SEC-PERMISSIONS",
+        "severity": "LOW",
+        "cwe": "CWE-16",
+        "finding": "Missing Permissions-Policy header. Browser features are not restricted.",
+    },
+}
+
+
+def run_python_vuln_scanner(target, httpx_results, port_results=None):
+    """
+    Python-based vulnerability scanner that checks for common security issues
+    without requiring external binaries (nuclei, nmap, etc.).
+    Results are deduplicated by (subdomain, vulnerability_id).
+    """
+    dedup = set()
+    vulns = []
+
+    if not httpx_results:
+        return vulns
+
+    for data in httpx_results:
+        url = data.get("url", "")
+        host = urlparse(url).hostname or target
+        headers = data.get("headers", {})
+        status = data.get("status_code", 0)
+
+        if not headers:
+            continue
+
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        # 1. Missing security headers (dedup per host)
+        missing_headers = []
+        for header_key, info in SECURITY_HEADER_CHECKS.items():
+            if header_key not in headers_lower:
+                dedup_key = (host, info["vulnerability_id"])
+                if dedup_key not in dedup:
+                    dedup.add(dedup_key)
+                    missing_headers.append(info)
+        if missing_headers:
+            header_names = ", ".join(h["vulnerability_id"] for h in missing_headers)
+            vulns.append({
+                "vulnerability_id": "SEC-MISSING",
+                "domain": target,
+                "subdomain": host,
+                "severity": "MEDIUM",
+                "cve": "",
+                "cwe": "CWE-693",
+                "finding": f"Missing security headers on {host}: {header_names}",
+                "template_id": "security-header/multiple",
+                "source_tool": "PythonScanner",
+            })
+
+        # 2. Server version information disclosure
+        server = headers.get("server", "")
+        dedup_key = (host, "INFO-SERVER")
+        if server and re.search(r'\d+\.\d+', server) and dedup_key not in dedup:
+            dedup.add(dedup_key)
+            vulns.append({
+                "vulnerability_id": "INFO-SERVER",
+                "domain": target,
+                "subdomain": host,
+                "severity": "LOW",
+                "cve": "",
+                "cwe": "CWE-200",
+                "finding": f"Server version disclosure on {host}: '{server}' header reveals version information",
+                "template_id": "info-disclosure/server-header",
+                "source_tool": "PythonScanner",
+            })
+
+        # 3. Technology disclosure via X-Powered-By
+        xpb = headers.get("x-powered-by", "")
+        dedup_key = (host, "INFO-XPOWERED")
+        if xpb and dedup_key not in dedup:
+            dedup.add(dedup_key)
+            vulns.append({
+                "vulnerability_id": "INFO-XPOWERED",
+                "domain": target,
+                "subdomain": host,
+                "severity": "LOW",
+                "cve": "",
+                "cwe": "CWE-200",
+                "finding": f"Technology fingerprint disclosure on {host}: X-Powered-By: {xpb}",
+                "template_id": "info-disclosure/x-powered-by",
+                "source_tool": "PythonScanner",
+            })
+
+        # 4. Plaintext HTTP (no TLS)
+        dedup_key = (host, "HTTP-PLAINTEXT")
+        if url.startswith("http://") and not url.startswith("https://") and dedup_key not in dedup:
+            dedup.add(dedup_key)
+            vulns.append({
+                "vulnerability_id": "HTTP-PLAINTEXT",
+                "domain": target,
+                "subdomain": host,
+                "severity": "HIGH",
+                "cve": "",
+                "cwe": "CWE-319",
+                "finding": f"Plaintext HTTP connection on {host} — all data transmitted in cleartext",
+                "template_id": "misconfiguration/http-plaintext",
+                "source_tool": "PythonScanner",
+            })
+
+        # 5. Missing cookie security flags
+        set_cookie = headers.get("set-cookie", "")
+        if set_cookie:
+            cookie_name = set_cookie.split("=")[0] if "=" in set_cookie else "unknown"
+            dedup_secure = (host, "COOKIE-NOSECURE")
+            if "secure" not in set_cookie.lower() and dedup_secure not in dedup:
+                dedup.add(dedup_secure)
+                vulns.append({
+                    "vulnerability_id": "COOKIE-NOSECURE",
+                    "domain": target,
+                    "subdomain": host,
+                    "severity": "MEDIUM",
+                    "cve": "",
+                    "cwe": "CWE-614",
+                    "finding": f"Cookie '{cookie_name}' on {host} missing 'Secure' flag",
+                    "template_id": "cookie/missing-secure-flag",
+                    "source_tool": "PythonScanner",
+                })
+            dedup_httponly = (host, "COOKIE-NOHTTPONLY")
+            if "httponly" not in set_cookie.lower() and dedup_httponly not in dedup:
+                dedup.add(dedup_httponly)
+                vulns.append({
+                    "vulnerability_id": "COOKIE-NOHTTPONLY",
+                    "domain": target,
+                    "subdomain": host,
+                    "severity": "MEDIUM",
+                    "cwe": "CWE-1004",
+                    "finding": f"Cookie '{cookie_name}' on {host} missing 'HttpOnly' flag",
+                    "template_id": "cookie/missing-httponly-flag",
+                    "source_tool": "PythonScanner",
+                })
+
+        # 6. Directory listing check (basic)
+        body = (data.get("body_preview") or "").lower()
+        dedup_key = (host, "DIR-LISTING")
+        if status == 200 and ("index of /" in body or "directory listing" in body) and dedup_key not in dedup:
+            dedup.add(dedup_key)
+            vulns.append({
+                "vulnerability_id": "DIR-LISTING",
+                "domain": target,
+                "subdomain": host,
+                "severity": "MEDIUM",
+                "cve": "",
+                "cwe": "CWE-548",
+                "finding": f"Directory listing enabled on {host}",
+                "template_id": "misconfiguration/directory-listing",
+                "source_tool": "PythonScanner",
+            })
+
+        # 7. Form submission over HTTP
+        dedup_key = (host, "FORM-HTTP-ACTION")
+        if status == 200 and ("<form" in body and 'action="http://' in body) and dedup_key not in dedup:
+            dedup.add(dedup_key)
+            vulns.append({
+                "vulnerability_id": "FORM-HTTP-ACTION",
+                "domain": target,
+                "subdomain": host,
+                "severity": "HIGH",
+                "cve": "",
+                "cwe": "CWE-319",
+                "finding": f"Form submits data over HTTP on {host}",
+                "template_id": "misconfiguration/form-http-action",
+                "source_tool": "PythonScanner",
+            })
+
+    # 8. Check open ports for sensitive services
+    if port_results:
+        for pr in port_results:
+            domain = pr.get("domain", "")
+            ports = pr.get("ports", [])
+            for p_entry in ports:
+                port_num = p_entry.get("port", 0) if isinstance(p_entry, dict) else 0
+                service = (p_entry.get("service") or "").lower() if isinstance(p_entry, dict) else ""
+                sensitive_ports = {
+                    21: ("FTP", "CWE-552", "MEDIUM", "FTP port 21 open. Unencrypted file transfer protocol."),
+                    23: ("Telnet", "CWE-319", "HIGH", "Telnet port 23 open. Unencrypted remote access protocol."),
+                    25: ("SMTP", "CWE-319", "MEDIUM", "SMTP port 25 open. Email server may be used for spam relay."),
+                    53: ("DNS", "CWE-200", "LOW", "DNS port 53 (UDP/TCP) open. DNS zone transfer may be possible."),
+                    110: ("POP3", "CWE-319", "MEDIUM", "POP3 port 110 open. Unencrypted email retrieval."),
+                    389: ("LDAP", "CWE-319", "MEDIUM", "LDAP port 389 open. Unencrypted directory services."),
+                    445: ("SMB", "CWE-552", "HIGH", "SMB port 445 open. Remote file sharing."),
+                    3389: ("RDP", "CWE-200", "HIGH", "RDP port 3389 open. Remote Desktop accessible from internet."),
+                    5432: ("PostgreSQL", "CWE-200", "MEDIUM", "PostgreSQL port 5432 open. Database exposed."),
+                    27017: ("MongoDB", "CWE-200", "HIGH", "MongoDB port 27017 open. Database exposed."),
+                    6379: ("Redis", "CWE-200", "HIGH", "Redis port 6379 open. In-memory DB exposed."),
+                    9200: ("Elasticsearch", "CWE-200", "HIGH", "Elasticsearch port 9200 open. Data store exposed."),
+                    22: ("SSH", "CWE-200", "LOW", "SSH port 22 open. Ensure strong authentication."),
+                    3306: ("MySQL", "CWE-200", "MEDIUM", "MySQL port 3306 open. Database exposed."),
+                    1433: ("MSSQL", "CWE-200", "MEDIUM", "MSSQL port 1433 open. Database exposed."),
+                    1521: ("Oracle", "CWE-200", "MEDIUM", "Oracle DB port 1521 open. Database exposed."),
+                    5900: ("VNC", "CWE-200", "HIGH", "VNC port 5900 open. Remote desktop accessible."),
+                }
+                if port_num in sensitive_ports:
+                    dedup_key = (domain, f"PORT-{port_num}")
+                    if dedup_key not in dedup:
+                        dedup.add(dedup_key)
+                        svc_name, cwe, sev, desc = sensitive_ports[port_num]
+                        vulns.append({
+                            "vulnerability_id": f"PORT-{port_num}",
+                            "domain": target,
+                            "subdomain": domain,
+                            "severity": sev,
+                            "cve": "",
+                            "cwe": cwe,
+                            "finding": f"{desc} Found on {domain}:{port_num} (service: {service or svc_name})",
+                            "template_id": f"exposed-port/{port_num}",
+                            "source_tool": "PythonScanner",
+                        })
+
+    return vulns
+
+
+# ── Wapiti ───────────────────────────────────────────────────────────────────
+
+def run_wapiti(urls, max_attack_time=60):
+    """Run Wapiti 3 scanner on given URLs and return vulnerabilities."""
+    exe = resolve_tool("wapiti", "WAPITI_PATH",
+                       getattr(settings, "WAPITI_PATH", None))
+    if not exe or not urls:
+        return []
+    vulns = []
+    for url in urls[:3]:
+        logger.info("wapiti scanning %s", url)
+        tmpdir = tempfile.mkdtemp(prefix="wapiti_")
+        out_path = Path(tmpdir) / "report.json"
+        try:
+            args = [exe, "-u", url,
+                    "--scope", "folder",
+                    "-f", "json",
+                    "-o", str(out_path),
+                    "--max-attack-time", str(max_attack_time),
+                    "--max-scan-time", str(max_attack_time * 2),
+                    "--max-crawling-time", "60",
+                    "-S", "sneaky",
+                    "-t", "10",
+                    "--verify-ssl", "0",
+                    "--tasks", "5"]
+            logger.debug("wapiti command: %s", " ".join(args))
+            r = run_cmd(args, timeout=(max_attack_time * 3) + 30)
+            if r["returncode"] != 0:
+                logger.warning("wapiti returned %d for %s: %s",
+                               r["returncode"], url, r["stderr"][:300])
+            if out_path.exists():
+                data = json.loads(out_path.read_text(encoding="utf-8"))
+                report = data if isinstance(data, dict) else {}
+                vuln_categories = report.get("vulnerabilities") or {}
+                host = urlparse(url).hostname or url
+                sev_map = {"0": "INFO", "1": "LOW", "2": "MEDIUM", "3": "HIGH", "4": "CRITICAL"}
+                seen_for_host = set()
+                for category, items in vuln_categories.items():
+                    for item in (items or []):
+                        vuln_id = f"WAPITI-{category.upper()}"
+                        dedup_key = (host, vuln_id)
+                        if dedup_key in seen_for_host:
+                            continue
+                        seen_for_host.add(dedup_key)
+                        finding = item.get("info") or category
+                        raw_level = item.get("level", 1)
+                        severity = sev_map.get(str(raw_level), "INFO")
+                        vulns.append({
+                            "vulnerability_id": vuln_id,
+                            "domain": host,
+                            "subdomain": host,
+                            "severity": severity,
+                            "cve": "",
+                            "cwe": "",
+                            "finding": f"{category}: {finding}",
+                            "template_id": category,
+                            "source_tool": "Wapiti",
+                        })
+            logger.info("wapiti found %d items for %s", len(vulns), url)
+        except json.JSONDecodeError as e:
+            logger.warning("wapiti JSON parse error for %s: %s", url, e)
+        except Exception as e:
+            logger.exception("wapiti failed for %s: %s", url, e)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    return vulns
+
+
+# ── Nuclei ───────────────────────────────────────────────────────────────────
+
+def run_nuclei(targets, tech_tags=None):
+    exe = resolve_tool("nuclei", "NUCLEI_PATH",
+                       getattr(settings, "NUCLEI_PATH", None))
+    if not exe or not targets:
+        return []
+    targets = targets[:5]
+    args = [exe, "-j", "-timeout", "5", "-retries", "1",
+            "-rl", "30", "-bs", "10", "-c", "10"]
+    if tech_tags:
+        args.extend(["-tags", ",".join(tech_tags)])
+    else:
+        args.extend(["-severity", "high,critical"])
+    if len(targets) == 1:
+        args.extend(["-u", targets[0]])
+    else:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("\n".join(targets))
+            infile = f.name
+        args.extend(["-l", infile])
+    logger.info("nuclei command: %s", " ".join(str(a) for a in args[:8]))
+    r = run_cmd(args, timeout=120)
+    if len(targets) > 1:
+        Path(infile).unlink(missing_ok=True)
+    vulns = []
+    for line in r["stdout"].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        info = data.get("info", {})
+        matched = data.get("matched-at") or data.get("url") or ""
+        vulns.append({
+            "template_id": data.get("template-id"),
+            "name": info.get("name"),
+            "severity": info.get("severity"),
+            "type": data.get("type"),
+            "protocol": data.get("protocol"),
+            "target": matched,
+            "host": data.get("host"),
+            "timestamp": data.get("timestamp"),
+            "cve": ", ".join(info.get("classification", {}).get("cve-id", [])) if info.get("classification") else None,
+            "cwe": ", ".join(info.get("classification", {}).get("cwe-id", [])) if info.get("classification") else None,
+        })
+    return vulns
+
+
+# ── Email Security ───────────────────────────────────────────────────────────
+
+def run_email_security(domain):
+    result = {
+        "domain": domain,
+        "root_txt": [], "spf": [], "dmarc": [], "mx": [],
+        "dkim_selector1": [], "dkim_default": [],
+        "smtp_hosts": [], "smtp_port_scan": {},
+        "smtp_open_relay": {}, "smtp_starttls": {},
+    }
+
+    dig = resolve_tool("dig", "DIG_PATH", ["/usr/bin/dig", "/usr/local/bin/dig"])
+
+    def dig_record(rtype, query_domain):
+        if not dig:
+            return []
+        r = run_cmd([dig, "+short", rtype, query_domain], timeout=30)
+        return [line.strip() for line in r["stdout"].splitlines() if line.strip()]
+
+    result["root_txt"] = dig_record("TXT", domain)
+    result["dmarc"] = dig_record("TXT", f"_dmarc.{domain}")
+    result["dkim_selector1"] = dig_record("TXT", f"selector1._domainkey.{domain}")
+    result["dkim_default"] = dig_record("TXT", f"default._domainkey.{domain}")
+    result["mx"] = dig_record("MX", domain)
+    result["spf"] = [r for r in result["root_txt"] if "v=spf1" in r.lower()]
+
+    smtp_hosts = []
+    for mx in result["mx"]:
+        parts = mx.split()
+        if parts:
+            host = parts[-1].rstrip(".")
+            if host and host != ".":
+                smtp_hosts.append(host)
+    if not smtp_hosts:
+        smtp_hosts.append(f"mail.{domain}")
+    result["smtp_hosts"] = smtp_hosts
+
+    smtp_target = smtp_hosts[0]
+    nmap_exe = resolve_tool("nmap", "NMAP_PATH",
+                            getattr(settings, "NMAP_PATH", None))
+    if nmap_exe:
+        port_r = run_cmd([nmap_exe, "-Pn", "-p", "25,465,587", smtp_target], timeout=120)
+        result["smtp_port_scan"] = {"raw": port_r["stdout"], "target": smtp_target}
+        relay_r = run_cmd([nmap_exe, "-Pn", "--script", "smtp-open-relay", "-p", "25", smtp_target], timeout=120)
+        result["smtp_open_relay"] = {"raw": relay_r["stdout"], "target": smtp_target}
+
+    openssl = resolve_tool("openssl", "OPENSSL_PATH",
+                           ["/usr/bin/openssl", "/usr/local/bin/openssl"])
+    if openssl:
+        starttls_r = run_cmd(
+            [openssl, "s_client", "-starttls", "smtp", "-connect", f"{smtp_target}:25"],
+            timeout=60, input_data="QUIT\n",
+        )
+        result["smtp_starttls"] = {"raw": starttls_r["stdout"], "target": smtp_target}
+
+    return result
+
+
+# ── Directory Scan (dirsearch) ─────────────────────────────────────────────
+
+def run_directory_scan(targets):
+    """Scan directories: tries dirsearch binary, falls back to Python scanner."""
+    from .scanner.directory_scanner import run_directory_scan as _scan
+    return _scan(targets)
+
+
+# ── SSL/TLS grade computation ───────────────────────────────────────────────
+
+def _compute_ssl_grade(cert, tls_version):
+    """Compute an SSL grade (A+ through F) based on cert properties."""
+    if not cert:
+        return "F"
+
+    score = 100
+
+    # Penalize old TLS versions
+    tls_ver = (tls_version or "").upper()
+    if "SSLv2" in tls_ver or "SSLv3" in tls_ver:
+        score -= 50
+    elif "TLSv1.0" in tls_ver or "TLSv1" == tls_ver.strip():
+        score -= 30
+    elif "TLSv1.1" in tls_ver:
+        score -= 20
+    elif "TLSv1.3" in tls_ver:
+        score += 5
+
+    # Check expiration
+    try:
+        from datetime import datetime
+        nb = cert.get("notBefore", "")
+        na = cert.get("notAfter", "")
+        date_fmt = "%b %d %H:%M:%S %Y %Z"
+        if nb and na:
+            not_before = datetime.strptime(nb, date_fmt)
+            not_after = datetime.strptime(na, date_fmt)
+            now = datetime.utcnow()
+            if now < not_before:
+                score -= 40  # not yet valid
+            days_left = (not_after - now).days
+            if days_left < 0:
+                score -= 80  # expired
+            elif days_left < 30:
+                score -= 30
+            elif days_left < 90:
+                score -= 10
+    except (ValueError, TypeError):
+        pass
+
+    # Check signature algorithm
+    sig_algo = (cert.get("signatureAlgorithm") or "").upper()
+    if "MD5" in sig_algo or "SHA1" in sig_algo:
+        score -= 30
+    elif "SHA256" in sig_algo or "SHA384" in sig_algo or "SHA512" in sig_algo:
+        score += 5
+
+    # Check wildcard
+    subject_raw = cert.get("subject", [])
+    cn = ""
+    for part in subject_raw:
+        if isinstance(part, tuple):
+            for kv in part:
+                if isinstance(kv, tuple) and len(kv) >= 2 and kv[0] == "commonName":
+                    cn = kv[1]
+        elif isinstance(part, list):
+            for kv in part:
+                if isinstance(kv, tuple) and len(kv) >= 2 and kv[0] == "commonName":
+                    cn = kv[1]
+    if cn.startswith("*."):
+        score -= 5
+
+    # Map score to grade
+    if score >= 95:
+        return "A+"
+    elif score >= 80:
+        return "A"
+    elif score >= 65:
+        return "B"
+    elif score >= 50:
+        return "C"
+    elif score >= 30:
+        return "D"
+    else:
+        return "F"
+
+
+# ── TestSSL ──────────────────────────────────────────────────────────────────
+
+def _format_cert_date(date_str):
+    """Convert SSL cert date like 'May 27 00:00:00 2025 GMT' to 'DD-MM-YYYY'."""
+    if not date_str:
+        return ""
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(date_str, "%b %d %H:%M:%S %Y %Z")
+        return dt.strftime("%d-%m-%Y")
+    except (ValueError, TypeError):
+        return date_str
+
+
+def run_testssl(targets):
+    """SSL/TLS certificate checker using Python ssl module (no external deps)."""
+    if not targets:
+        return []
+    results = []
+    for raw_target in targets:
+        host = raw_target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+        try:
+            # Resolve ALL IPs (not just the first one) for ip_count
+            all_ips = set()
+            rdns = None
+            try:
+                for family in (socket.AF_INET, socket.AF_INET6):
+                    try:
+                        for res in socket.getaddrinfo(host, 443, family):
+                            all_ips.add(res[4][0])
+                    except socket.gaierror:
+                        pass
+            except Exception:
+                pass
+            ip_addr = list(all_ips)[0] if all_ips else host
+            ip_count = len(all_ips)
+            try:
+                rdns = socket.gethostbyaddr(ip_addr)[0]
+            except (socket.herror, socket.gaierror):
+                rdns = host
+
+            # DNS record count
+            dns_count = 0
+            try:
+                if DNS_RESOLVER_AVAILABLE:
+                    answers = dns.resolver.resolve(host, 'A', lifetime=3)
+                    dns_count = len(answers)
+            except Exception:
+                pass
+            if dns_count == 0:
+                try:
+                    if DNS_RESOLVER_AVAILABLE:
+                        answers = dns.resolver.resolve(host, 'AAAA', lifetime=3)
+                        dns_count = len(answers)
+                except Exception:
+                    pass
+
+            # Establish SSL connection
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = True
+            ctx.verify_mode = ssl.CERT_REQUIRED
+            with socket.create_connection((host, 443), timeout=10) as sock:
+                with ctx.wrap_socket(sock, server_hostname=host) as tls:
+                    cert = tls.getpeercert()
+                    actual_cipher = tls.cipher()
+                    version = tls.version()
+
+            if not cert:
+                results.append({
+                    "host": host, "ssl_grade": "F", "issuer": "", "ip": ip_addr or host,
+                    "rdns": rdns or "", "expiry_date": "", "purchase_date": "",
+                    "cipher_suite": "", "is_trusted": False, "ip_count": ip_count, "dns_count": dns_count,
+                })
+                continue
+
+            # Dates - format as DD-MM-YYYY for frontend consistency
+            not_before = _format_cert_date(cert.get("notBefore", ""))
+            not_after = _format_cert_date(cert.get("notAfter", ""))
+
+            # Issuer (cert issuer is a tuple of tuples like ((('k','v'),),) from ssl standard)
+            issuer_parts = cert.get("issuer", [])
+            issuer_pairs = []
+            for part in issuer_parts:
+                if isinstance(part, tuple):
+                    for kv in part:
+                        if isinstance(kv, tuple) and len(kv) >= 2:
+                            issuer_pairs.append(f"{kv[0]}+{kv[1]}")
+                elif isinstance(part, list):
+                    for kv in part:
+                        if isinstance(kv, tuple) and len(kv) >= 2:
+                            issuer_pairs.append(f"{kv[0]}+{kv[1]}")
+            issuer = "; ".join(issuer_pairs) if issuer_pairs else str(issuer_parts)
+
+            # Cipher
+            cipher_suite = f"{actual_cipher[0]} ({version})" if actual_cipher else ""
+
+            # Grade calculation
+            grade = _compute_ssl_grade(cert, version)
+
+            # Trust check
+            is_trusted = True
+            try:
+                ctx2 = ssl.create_default_context()
+                ctx2.check_hostname = True
+                ctx2.verify_mode = ssl.CERT_REQUIRED
+                with socket.create_connection((host, 443), timeout=10) as sock:
+                    with ctx2.wrap_socket(sock, server_hostname=host) as tls:
+                        tls.getpeercert()
+            except ssl.SSLCertVerificationError:
+                is_trusted = False
+            except Exception:
+                pass
+
+            results.append({
+                "host": host,
+                "ssl_grade": grade,
+                "issuer": issuer,
+                "ip": ip_addr or host,
+                "rdns": rdns or "",
+                "expiry_date": not_after,
+                "purchase_date": not_before,
+                "cipher_suite": cipher_suite,
+                "is_trusted": is_trusted,
+                "ip_count": ip_count,
+                "dns_count": dns_count,
+            })
+
+        except ssl.SSLError as e:
+            # ip_count/dns_count may not be defined if error occurred early
+            err_ip_count = locals().get("ip_count", 0)
+            err_dns_count = locals().get("dns_count", 0)
+            results.append({
+                "host": host, "ssl_grade": "F", "issuer": "", "ip": ip_addr or host,
+                "rdns": rdns or "", "expiry_date": "", "purchase_date": "",
+                "cipher_suite": f"SSL error: {e}", "is_trusted": False,
+                "ip_count": err_ip_count, "dns_count": err_dns_count,
+            })
+        except (socket.timeout, ConnectionRefusedError, ConnectionResetError, OSError) as e:
+            results.append({
+                "host": host, "ssl_grade": "F", "issuer": "", "ip": host,
+                "rdns": "", "expiry_date": "", "purchase_date": "",
+                "cipher_suite": f"Connection error: {e}", "is_trusted": False,
+                "ip_count": 0, "dns_count": 0,
+            })
+        except Exception as e:
+            logger.exception("SSL check failed for %s: %s", host, e)
+            results.append({
+                "host": host, "ssl_grade": "F", "issuer": "", "ip": host,
+                "rdns": "", "expiry_date": "", "purchase_date": "",
+                "cipher_suite": f"Error: {e}", "is_trusted": False,
+                "ip_count": 0, "dns_count": 0,
+            })
+    return results
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def mark_phase(scan, phase_field, progress):
+    setattr(scan, phase_field, True)
+    scan.progress = progress
+    scan.save(update_fields=[phase_field, "progress"])
+
+
+# ── Full Scan Orchestrator ───────────────────────────────────────────────────
+
+def run_full_scan(scan):
+    target = scan.target
+    org_id = scan.org_id
+    try:
+        scan.status = "running"
+        scan.progress = 2
+        scan.save()
+
+        # ── Phase 1: Subdomain Discovery ──────────────────────────────────────
+        subdomains = run_subfinder(target)
+        if not subdomains:
+            subdomains = [target]
+
+        for sub in subdomains:
+            SubdomainResult.objects.get_or_create(
+                scan=scan, domain=sub,
+                defaults={"org_id": org_id, "status": "Active"},
+            )
+        mark_phase(scan, "subdomains_done", 15)
+
+        # ── Phase 2: Live Host Probing (Python httpx) ─────────────────────────
+        httpx_results = run_httpx(subdomains)
+        live_urls = []
+        for h in httpx_results:
+            u = h.get("url", "")
+            if u and h.get("status_code") and 200 <= h["status_code"] < 500:
+                live_urls.append(u)
+        if not live_urls:
+            live_urls = [f"https://{d}" for d in subdomains[:3]]
+
+        # ── Phase 3: Technology Detection (Wappalyzer + header analysis) ──────
+        wappalyzer_results = run_wappalyzer(subdomains[:10])
+        wapp_tech_map = {}
+        for wr in wappalyzer_results:
+            dom = wr.get("domain", "")
+            if dom:
+                wapp_tech_map[dom] = wr.get("technologies", [])
+        header_techs = run_header_tech_analysis(subdomains[:10], httpx_results)
+
+        # Merge all techs per host
+        combined_tech_map = {}
+        for data in httpx_results:
+            url = data.get("url", "")
+            host = urlparse(url).hostname or ""
+            if not host:
+                continue
+            techs = set(data.get("tech", []) or [])
+            if host in wapp_tech_map:
+                techs.update(wapp_tech_map[host])
+            if host in header_techs:
+                techs.update(header_techs[host])
+            combined_tech_map[host] = sorted(techs) if techs else []
+
+        # Save endpoints
+        endpoint_covered = set()
+        for data in httpx_results:
+            url = data.get("url", "")
+            if not url:
+                continue
+            hn = urlparse(url).hostname or ""
+            endpoint_covered.add(hn)
+            techs = combined_tech_map.get(hn, data.get("tech", []))
+            EndpointResult.objects.get_or_create(
+                scan=scan, http_url=url,
+                defaults={
+                    "subdomain_name": hn,
+                    "http_status": data.get("status_code"),
+                    "content_type": data.get("content_type"),
+                    "content_length": data.get("content_length"),
+                    "title": data.get("title", ""),
+                    "is_alive": True,
+                    "technologies": techs,
+                    "org_id": org_id,
+                },
+            )
+            SubdomainResult.objects.filter(scan=scan, domain=hn).update(
+                title=data.get("title", ""),
+                technologies=techs,
+            )
+
+        # Save technology results
+        for host, techs in combined_tech_map.items():
+            if techs:
+                TechnologyResult.objects.get_or_create(
+                    scan=scan, domain=host,
+                    defaults={"technologies": techs, "org_id": org_id},
+                )
+
+        mark_phase(scan, "endpoints_done", 35)
+        mark_phase(scan, "technologies_done", 40)
+
+        hostnames = []
+        for u in live_urls:
+            try:
+                hostnames.append(urlparse(u).hostname or u)
+            except Exception:
+                hostnames.append(u)
+
+        all_scan_targets = list(dict.fromkeys(hostnames))
+
+        # ── Phase 4: Port scanning ───────────────────────────────────────────
+        vuln_count_map = {}
+
+        scan.progress = 45
+        scan.save(update_fields=["progress"])
+        logger.info("Phase 4: port scanning targets=%s", all_scan_targets[:5])
+        try:
+            nmap_results = run_nmap(all_scan_targets[:5])
+        except Exception as e:
+            logger.exception("nmap phase failed: %s", e)
+            nmap_results = []
+
+        # Save ports
+        saved_ports = 0
+        for nmap_host in nmap_results:
+            domain_name = nmap_host.get("hostname") or nmap_host.get("address", "")
+            port_objs = []
+            for p in nmap_host.get("ports", []):
+                port_objs.append({
+                    "port": p["port"],
+                    "service": p.get("service") or "",
+                    "product": p.get("product") or "",
+                    "version": p.get("version") or "",
+                })
+            if port_objs:
+                PortResult.objects.get_or_create(
+                    scan=scan, domain=domain_name,
+                    defaults={"ports": port_objs, "org_id": org_id},
+                )
+                saved_ports += 1
+        # Track scanned domains even when no open ports were found
+        if saved_ports == 0 and all_scan_targets:
+            for dom in all_scan_targets[:5]:
+                PortResult.objects.get_or_create(
+                    scan=scan, domain=dom,
+                    defaults={"ports": [], "org_id": org_id},
+                )
+            logger.info("No open ports found on any target; creating empty entries for %d domains", len(all_scan_targets))
+        else:
+            logger.info("Found open ports on %d hosts", saved_ports)
+        mark_phase(scan, "ports_done", 55)
+
+        # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
+        scan.progress = 60
+        scan.save(update_fields=["progress"])
+        # Collect all detected technologies across hosts for targeted scanning
+        all_techs = set()
+        for host, techs in combined_tech_map.items():
+            all_techs.update(techs)
+        nuclei_tags = techs_to_nuclei_tags(all_techs) if all_techs else None
+        logger.info("Phase 5: vulnerability scanning targets=%s techs=%s tags=%s",
+                     live_urls[:5], sorted(all_techs), nuclei_tags)
+        try:
+            nuclei_results = run_nuclei(live_urls[:5], tech_tags=nuclei_tags)
+        except Exception as e:
+            logger.exception("nuclei phase failed: %s", e)
+            nuclei_results = []
+
+        # Run Python-based vulnerability scanner (no external tools needed)
+        python_vulns = run_python_vuln_scanner(target, httpx_results, port_results=nmap_results)
+
+        # Run Wapiti scanner on live URLs
+        wapiti_results = []
+        try:
+            wapiti_results = run_wapiti(live_urls[:3], max_attack_time=60)
+        except Exception as e:
+            logger.exception("wapiti phase failed: %s", e)
+
+        all_vulns = list(nuclei_results) + python_vulns + wapiti_results
+
+        # Cross-module deduplication: same (subdomain, vuln_id) kept once, highest severity wins
+        deduped_vulns = deduplicate_vulnerabilities(all_vulns)
+        if len(deduped_vulns) < len(all_vulns):
+            logger.info("Vulnerability deduplication: %d → %d unique findings",
+                         len(all_vulns), len(deduped_vulns))
+
+        # Save vulnerabilities
+        for nv in deduped_vulns:
+            target_url = nv.get("target", "")
+            matched_host = nv.get("host") or nv.get("subdomain") or urlparse(target_url).hostname or target
+            severity = (nv.get("severity") or "info").upper()
+            cve = nv.get("cve", "")
+            cwe = nv.get("cwe", "")
+            finding = nv.get("finding") or nv.get("name", "")
+            template_id = nv.get("template_id", "")
+            source_tool = nv.get("source_tool", "Nuclei")
+            vuln_id = nv.get("vulnerability_id") or (f"CVE-{cve}" if cve else f"NUC-{template_id or 'unknown'}")
+            VulnerabilityResult.objects.get_or_create(
+                scan=scan,
+                vulnerability_id=vuln_id,
+                subdomain=matched_host,
+                defaults={
+                    "domain": target,
+                    "severity": severity,
+                    "cve": cve or "-",
+                    "cwe": cwe or "-",
+                    "finding": finding or "-",
+                    "template_id": template_id or "",
+                    "source_tool": source_tool,
+                    "org_id": org_id,
+                },
+            )
+            if matched_host not in vuln_count_map:
+                vuln_count_map[matched_host] = 0
+            vuln_count_map[matched_host] += 1
+
+        if deduped_vulns:
+            for subdomain, count in vuln_count_map.items():
+                SubdomainResult.objects.filter(scan=scan, domain=subdomain).update(
+                    vulnerabilities_count=count
+                )
+        mark_phase(scan, "vulnerabilities_done", 75)
+
+        # ── Phase 6: SSL scanning ─────────────────────────────────────────────
+        scan.progress = 80
+        scan.save(update_fields=["progress"])
+        unique_hostnames = list(dict.fromkeys(hostnames))
+        logger.info("Phase 6: SSL scanning targets=%s", unique_hostnames)
+        try:
+            ssl_results = run_testssl(unique_hostnames)
+        except Exception as e:
+            logger.exception("testssl phase failed: %s", e)
+            ssl_results = []
+
+        # Save SSL
+        logger.info("SSL scan found %d results", len(ssl_results))
+        for ssl in ssl_results:
+            host = ssl.get("host", "")
+            if host:
+                SSLResult.objects.get_or_create(
+                    scan=scan, domain=host,
+                    defaults={
+                        "ssl_grade": ssl.get("ssl_grade", "F"),
+                        "issuer_name": ssl.get("issuer", ""),
+                        "ip": ssl.get("ip") or "",
+                        "rdns": ssl.get("rdns") or "",
+                        "expiry_date": ssl.get("expiry_date") or "",
+                        "purchase_date": ssl.get("purchase_date") or "",
+                        "cipher_suite": ssl.get("cipher_suite") or "",
+                        "is_trusted": ssl.get("is_trusted", True),
+                        "ip_count": ssl.get("ip_count", 0),
+                        "dns_count": ssl.get("dns_count", 0),
+                        "org_id": org_id,
+                    },
+                )
+        mark_phase(scan, "ssl_done", 85)
+
+        # ── Phase 7: Email security ───────────────────────────────────────────
+        try:
+            email_results = run_email_security(target)
+        except Exception:
+            email_results = {}
+
+        # Save email security
+        email_data = {k: v for k, v in email_results.items() if k != "domain"}
+        EmailSecurityResult.objects.create(
+            scan=scan, domain=target, org_id=org_id, **email_data,
+        )
+        mark_phase(scan, "email_done", 95)
+
+        # ── Phase 8: Directory Scanning ──────────────────────────────────────
+        try:
+            dirs = run_directory_scan(live_urls[:5])
+            for dr in dirs:
+                DirectoryResult.objects.get_or_create(
+                    scan=scan, url=dr.get("url", ""),
+                    defaults={
+                        "subdomain_name": urlparse(dr.get("url", "")).hostname or "",
+                        "status": dr.get("status", 0),
+                        "content_type": dr.get("content_type", ""),
+                        "content_details": dr.get("content_length", ""),
+                        "org_id": org_id,
+                    },
+                )
+        except Exception:
+            pass
+        mark_phase(scan, "directories_done", 100)
+
+        # ── Done ─────────────────────────────────────────────────────────────
+        scan.progress = 100
+        scan.status = "completed"
+        scan.save(update_fields=["progress", "status"])
+
+    except Exception as e:
+        scan.status = "failed"
+        scan.save(update_fields=["status"])
+        logger.exception("Scan failed: %s", e)
