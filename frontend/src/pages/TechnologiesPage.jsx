@@ -97,7 +97,7 @@ const TechnologiesPage = () => {
 
   useEffect(() => {
     fetchTechnologies();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   // Render exact timestamp as a two-line block to avoid horizontal collision
   const renderExactTimestamp = (dateString) => {

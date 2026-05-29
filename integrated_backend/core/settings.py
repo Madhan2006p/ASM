@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     # Local apps
     'authentication',
+    'accounts',
     'targets',
     'scans',
     'fuzzing',
@@ -36,6 +37,7 @@ INSTALLED_APPS = [
     'apk_scanner',
     'reconnaissance',
     'attacksurface',
+    'assetDiscovery',
 ]
 
 MIDDLEWARE = [

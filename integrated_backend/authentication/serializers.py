@@ -3,7 +3,7 @@ import re
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from .models import Organization, OrganizationMembership
+from .models import Organization, OrganizationMembership, UserProfile
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -51,6 +51,10 @@ class UserSerializer(serializers.ModelSerializer):
             username=validated_data.get("username") or validated_data.get("email", ""),
             email=validated_data.get("email", ""),
             password=validated_data["password"],
+        )
+        UserProfile.objects.update_or_create(
+            user=user,
+            defaults={"phone_number": self.initial_data.get("phone", "")},
         )
         # Create or get organization and add membership
         org, _ = Organization.objects.get_or_create(

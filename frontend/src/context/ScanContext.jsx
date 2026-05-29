@@ -89,7 +89,7 @@ export const ScanProvider = ({ children }) => {
             clearInterval(interval);
             pollRef.current = null;
             addLog("[+] Scan completed successfully!", "success");
-            setScanState(prev => ({ ...prev, progress: 100, phase: "Scan completed!" }));
+            setScanState(prev => ({ ...prev, progress: 100, phase: "Scan completed!", isScanning: false }));
             setRefreshKey(k => k + 1);
             return true;
           }

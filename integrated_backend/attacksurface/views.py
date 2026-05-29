@@ -58,7 +58,51 @@ class AttackSurfaceBaseView(ListAPIView):
         if not scan_id:
             return self.model.objects.none()
             
-        return self.model.objects.filter(org_id=self.get_org_id(), scan_id=scan_id)
+        org_id = self.get_org_id()
+        
+        # Try to find the scan by scan_id securely
+        try:
+            scan_id_int = int(scan_id)
+            scan = AttackSurfaceScan.objects.filter(id=scan_id_int).first()
+        except (ValueError, TypeError):
+            scan = None
+
+        if scan:
+            if scan.org_id == org_id:
+                # Correct organization
+                return self.model.objects.filter(org_id=org_id, scan_id=scan_id_int)
+            else:
+                # Mismatch! The scan belongs to another organization.
+                # Find the latest scan for the same target domain in this organization.
+                fallback_scan = AttackSurfaceScan.objects.filter(
+                    org_id=org_id, target=scan.target
+                ).order_by("-created_at").first()
+                if fallback_scan:
+                    return self.model.objects.filter(org_id=org_id, scan_id=fallback_scan.id)
+                    
+        return self.model.objects.filter(org_id=org_id, scan_id=scan_id)
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        
+        # Retrieve the token from the Authorization header
+        auth_header = request.headers.get('Authorization', '')
+        token = ''
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            
+        # Append the access token and token type to the response body
+        if isinstance(response.data, dict):
+            response.data['access_token'] = token
+            response.data['token_type'] = 'Bearer'
+        elif isinstance(response.data, list):
+            response.data = {
+                'results': response.data,
+                'access_token': token,
+                'token_type': 'Bearer'
+            }
+            
+        return response
 
 
 class SubdomainListView(AttackSurfaceBaseView):
@@ -234,6 +278,29 @@ class ScanStatusView(RetrieveAPIView):
     def get_queryset(self):
         org_id = get_user_org_id(self.request)
         return AttackSurfaceScan.objects.filter(org_id=org_id)
+
+    def retrieve(self, request, *args, **kwargs):
+        org_id = get_user_org_id(request)
+        scan_id = self.kwargs.get("id")
+        
+        # Try to get the scan from the user's organization first
+        scan = AttackSurfaceScan.objects.filter(org_id=org_id, id=scan_id).first()
+        if not scan:
+            # Check if it exists in another organization
+            global_scan = AttackSurfaceScan.objects.filter(id=scan_id).first()
+            if global_scan:
+                # Find the latest scan for the same target domain in this organization
+                fallback_scan = AttackSurfaceScan.objects.filter(
+                    org_id=org_id, target=global_scan.target
+                ).order_by("-created_at").first()
+                if fallback_scan:
+                    scan = fallback_scan
+        
+        if not scan:
+            return Response({"detail": "Not found."}, status=404)
+            
+        serializer = self.get_serializer(scan)
+        return Response(serializer.data)
 
 
 class ScanHistoryView(ListAPIView):

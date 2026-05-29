@@ -272,7 +272,7 @@ const EndpointsPage = () => {
 
   useEffect(() => {
     fetchEndpoints();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   useEffect(() => {
     const styleId = "endpoint-tree-styles";

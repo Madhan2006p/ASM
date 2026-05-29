@@ -100,7 +100,7 @@ const DirectoriesPage = () => {
 
   useEffect(() => {
     fetchDirectories();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   // Get status badge
   const getStatusBadge = (status) => {

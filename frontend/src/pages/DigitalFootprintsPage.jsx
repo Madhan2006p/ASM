@@ -229,7 +229,7 @@ const DigitalFootprintsPage = () => {
 
   useEffect(() => {
     fetchSubdomains();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   const handleWizardSubmit = (e) => {
     e.preventDefault();

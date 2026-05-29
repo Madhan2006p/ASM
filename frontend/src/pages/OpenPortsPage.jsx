@@ -111,7 +111,7 @@ const OpenPortsPage = () => {
 
   useEffect(() => {
     fetchOpenPorts();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   // Format date in exact timestamp format (locale representation)
   const formatExactTimestamp = (dateString) => {

@@ -270,6 +270,19 @@ const DashboardPage = () => {
     return () => window.removeEventListener('showSubscription', handleShowSub);
   }, []);
 
+  useEffect(() => {
+    if (scanState.isScanning && scanState.progress === 0) {
+      setSubdomains([]);
+      setUniqueDomains([]);
+      setVulns([]);
+      setWebEntities([]);
+      setCertificates([]);
+      setPortCount(0);
+      setVulnerabilityCounts({ critical: 0, high: 0, medium: 0, low: 0 });
+      setStats([]);
+    }
+  }, [scanState.isScanning, scanState.progress]);
+
   const prevPhasesRef = React.useRef({});
   useEffect(() => {
     const phases = scanState.phasesDone || {};
@@ -281,14 +294,50 @@ const DashboardPage = () => {
   }, [scanState.phasesDone, loadData, scanState.scanId]);
 
   useEffect(() => {
-    // Only load dashboard data if there's an existing scan from a previous session
+    // Only load dashboard data if there's an existing scan in this active session (keeps values when navigating)
     const storedScanId = localStorage.getItem("activeScanId");
     const storedDomain = localStorage.getItem("lastScannedDomain");
     if (storedScanId) {
       if (storedDomain) setScannedDomain(storedDomain);
       loadData(storedScanId, storedDomain);
     }
-    // If no stored scan, show empty states until user scans a domain
+
+    const loadMonitored = async () => {
+      try {
+        const domainList = await fetchMonitoredDomains();
+        if (domainList && domainList.length > 0) {
+          setMonitoredDomains(domainList);
+          
+          const currentScanId = localStorage.getItem("activeScanId");
+          const currentDomain = localStorage.getItem("lastScannedDomain");
+          
+          // Verify if currentScanId belongs to the current user's organization domains
+          const matchedDomainObj = domainList.find(d => d.latest_scan_id && String(d.latest_scan_id) === String(currentScanId));
+          
+          if (!currentScanId || !matchedDomainObj) {
+            // Mismatch or empty! Let's choose the latest scan for the last scanned domain, or first domain with a scan.
+            let activeObj = domainList.find(d => d.domain === currentDomain && d.latest_scan_id);
+            if (!activeObj) {
+              activeObj = domainList.find(d => d.latest_scan_id);
+            }
+            
+            if (activeObj) {
+              try {
+                localStorage.setItem("activeScanId", String(activeObj.latest_scan_id));
+                localStorage.setItem("lastScannedDomain", activeObj.domain);
+              } catch {}
+              setScannedDomain(activeObj.domain);
+              loadData(activeObj.latest_scan_id, activeObj.domain);
+            }
+          }
+        } else {
+          setMonitoredDomains([]);
+        }
+      } catch {
+        setMonitoredDomains([]);
+      }
+    };
+    loadMonitored();
   }, [loadData, refreshKey]);
 
   // Reset report generator states when modal opens/closes
@@ -1016,52 +1065,6 @@ const DashboardPage = () => {
             </Card.Body>
           </Card>
         )}
-
-        {/* Pending Modules: Surface Web, Dark Web, Incident Report */}
-        <Row className="mb-4 g-3">
-          <Col md={4}>
-            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
-              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
-                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(59, 130, 246, 0.1)' }}>
-                  <FiMonitor size={24} style={{ color: '#3b82f6' }} />
-                </div>
-                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Surface Web Monitoring</h6>
-                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
-                <p className="text-muted small mb-0">
-                  Continuous monitoring of surface web assets for brand abuse, phishing domains, and exposed credentials.
-                </p>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col md={4}>
-            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
-              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
-                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(139, 92, 246, 0.1)' }}>
-                  <FiAlertOctagon size={24} style={{ color: '#8b5cf6' }} />
-                </div>
-                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Dark Web Monitoring</h6>
-                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
-                <p className="text-muted small mb-0">
-                  Intelligence scanning of dark web forums and marketplaces for stolen credentials and leaked data.
-                </p>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col md={4}>
-            <Card className="border-0 h-100" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
-              <Card.Body className="p-4 text-center d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 180 }}>
-                <div className="mb-3 rounded-circle d-flex align-items-center justify-content-center" style={{ width: 56, height: 56, background: 'rgba(239, 68, 68, 0.1)' }}>
-                  <FiAlertTriangle size={24} style={{ color: '#ef4444' }} />
-                </div>
-                <h6 className="fw-bold mb-1" style={{ color: 'var(--text-color)' }}>Incident Report</h6>
-                <Badge bg="secondary" className="mb-2">Coming Soon</Badge>
-                <p className="text-muted small mb-0">
-                  Generate and manage security incident reports with detailed findings, timelines, and remediation steps.
-                </p>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
 
       <Card className="border-0 mb-4" style={{ background: 'var(--header-bg)', border: '1px solid var(--header-border)', borderRadius: '16px' }}>
           <Card.Header className="bg-transparent pt-4 pb-2 border-bottom-0">

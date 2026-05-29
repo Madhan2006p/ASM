@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Organization, OrganizationMembership
+from .models import Organization, OrganizationMembership, UserProfile
 from .permissions import IsOrgAdmin
 from .serializers import (
     OrganizationMembershipSerializer,
@@ -36,11 +36,13 @@ def get_user_data(user):
         org_id = membership.organization.org_id
         org_name = membership.organization.name
         role = membership.role
+    profile = getattr(user, "asm_profile", None)
     return {
         "id": user.id,
         "name": user.get_full_name() or user.username,
         "email": user.email,
         "username": user.username,
+        "phone_number": profile.phone_number if profile else "",
         "organization_id": org_id,
         "organization": org_name,
         "role": role,
@@ -287,6 +289,7 @@ class AdminCreateUserView(APIView):
         org_id = request.data.get("org_id", "")
         role = request.data.get("role", "member")
         full_name = request.data.get("full_name", "").strip()
+        phone_number = request.data.get("phone_number", request.data.get("phone", "")).strip()
 
         if not username or not email or not password:
             return Response(
@@ -331,6 +334,10 @@ class AdminCreateUserView(APIView):
             organization=org,
             role=role,
         )
+        UserProfile.objects.update_or_create(
+            user=user,
+            defaults={"phone_number": phone_number},
+        )
 
         return Response(
             {
@@ -340,6 +347,7 @@ class AdminCreateUserView(APIView):
                     "username": user.username,
                     "email": user.email,
                     "full_name": full_name,
+                    "phone_number": phone_number,
                     "organization_id": org.org_id,
                     "organization": org.name,
                     "role": role,

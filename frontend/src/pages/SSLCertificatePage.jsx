@@ -112,7 +112,7 @@ const SSLCertificatePage = () => {
 
   useEffect(() => {
     fetchSSLCertificates();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   // Format date in exact format
   const formatExactTimestamp = (dateString) => {

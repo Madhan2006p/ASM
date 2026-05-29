@@ -17,6 +17,7 @@ import ScanDetailPage from "./pages/ScanDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import Header from "./components/Header";
+import { checkAuth } from "./utils/api";
 
 // Role-based module access mapping (matches backend)
 const MODULE_ACCESS = {
@@ -40,6 +41,7 @@ const MODULE_ACCESS = {
 /**
  * ProtectedRoute redirects to /login if the user is not authenticated.
  * For authenticated users, it checks module-level access based on role.
+ * On every navigation / location change, it validates the JWT token with the backend.
  */
 const ProtectedRoute = ({ children, requiredModules = [] }) => {
   const location = useLocation();
@@ -47,43 +49,80 @@ const ProtectedRoute = ({ children, requiredModules = [] }) => {
   const [hasAccess, setHasAccess] = useState(true);
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    const userData = localStorage.getItem('user');
-    
-    if (!token) {
-      setIsAuthenticated(false);
-      setChecking(false);
-      return;
-    }
-    
-    setIsAuthenticated(true);
-    
-    // Check role-based access for the current path
-    try {
-      const user = userData ? JSON.parse(userData) : null;
-      const role = user?.role || 'viewer';
-      const allowedPaths = MODULE_ACCESS[role] || MODULE_ACCESS.viewer;
-      
-      const currentPath = location.pathname;
-      const hasModuleAccess = allowedPaths.some(p => currentPath.startsWith(p));
-      
-      // Also check if requiredModules are provided explicitly
-      if (requiredModules.length > 0) {
-        const userModules = MODULE_ACCESS[role] || [];
-        const hasAllRequired = requiredModules.every(m => userModules.includes(m));
-        setHasAccess(hasAllRequired);
-      } else {
-        setHasAccess(hasModuleAccess || currentPath === '/');
-      }
-    } catch {
-      setHasAccess(true);
-    }
-    
-    setChecking(false);
-  }, [location.pathname, requiredModules]);
+  const modulesKey = requiredModules.join(",");
 
-  if (checking) return null;
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    console.log(`[JWT Authorization Check] Path: "${location.pathname}" | Current Token:`, token);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    let active = true;
+    
+    const verifyAuth = async () => {
+      const token = localStorage.getItem('accessToken');
+      
+      if (!token) {
+        if (active) {
+          setIsAuthenticated(false);
+          setChecking(false);
+        }
+        return;
+      }
+
+      // Query the backend to verify the JWT token
+      const res = await checkAuth();
+      
+      if (!active) return;
+
+      if (res && res.authenticated) {
+        setIsAuthenticated(true);
+        // Save fresh user data from JWT verification response
+        if (res.user) {
+          localStorage.setItem('user', JSON.stringify(res.user));
+        }
+        
+        try {
+          const user = res.user || JSON.parse(localStorage.getItem('user'));
+          const role = user?.role || 'viewer';
+          const allowedPaths = MODULE_ACCESS[role] || MODULE_ACCESS.viewer;
+          
+          const currentPath = location.pathname;
+          const hasModuleAccess = allowedPaths.some(p => currentPath.startsWith(p));
+          
+          if (requiredModules.length > 0) {
+            const userModules = MODULE_ACCESS[role] || [];
+            const hasAllRequired = requiredModules.every(m => userModules.includes(m));
+            setHasAccess(hasAllRequired);
+          } else {
+            setHasAccess(hasModuleAccess || currentPath === '/');
+          }
+        } catch {
+          setHasAccess(true);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+      setChecking(false);
+    };
+
+    verifyAuth();
+    
+    return () => {
+      active = false;
+    };
+  }, [location.pathname, modulesKey]);
+
+  if (checking) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh', color: 'var(--text-color)' }}>
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+  
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
   if (!hasAccess) return <Navigate to="/dashboard" replace />;
   
@@ -91,6 +130,11 @@ const ProtectedRoute = ({ children, requiredModules = [] }) => {
 };
 
 function App() {
+  useEffect(() => {
+    localStorage.removeItem("activeScanId");
+    localStorage.removeItem("lastScannedDomain");
+  }, []);
+
   return (
     <ScanProvider>
       <div>

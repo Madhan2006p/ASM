@@ -104,7 +104,7 @@ const VulnerabilitiesPage = () => {
 
   useEffect(() => {
     fetchVulnerabilities();
-  }, [refreshKey]);
+  }, [refreshKey, JSON.stringify(scanState.phasesDone)]);
 
   // Format date
   const formatExactTimestamp = (dateString) => {

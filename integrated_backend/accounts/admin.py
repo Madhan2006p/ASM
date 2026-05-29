@@ -1,0 +1,146 @@
+from django.contrib import admin
+from django.contrib.admin.sites import NotRegistered
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import User as DjangoUser
+from django.utils.text import slugify
+
+from authentication.models import OrganizationMembership
+
+from .forms import CustomUserChangeForm, CustomUserCreationForm
+from .models import Organization, User
+
+
+def unique_org_id(name):
+    base = slugify(name)[:50] or "org"
+    candidate = base
+    counter = 2
+
+    while Organization.objects.filter(org_id=candidate).exists():
+        suffix = f"-{counter}"
+        candidate = f"{base[:50 - len(suffix)]}{suffix}"
+        counter += 1
+
+    return candidate
+
+
+class OrganizationListFilter(admin.SimpleListFilter):
+    title = "organization"
+    parameter_name = "organization"
+
+    def lookups(self, request, model_admin):
+        return Organization.objects.order_by("name").values_list("id", "name")
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(memberships__organization_id=self.value())
+        return queryset
+
+
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ("name", "org_id", "is_active", "member_count", "created_at")
+    list_filter = ("is_active", "created_at")
+    search_fields = ("name", "org_id", "allowed_domains")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("name",)
+
+    fieldsets = (
+        (None, {"fields": ("name", "description", "is_active")}),
+        (
+            "Domains",
+            {
+                "fields": ("allowed_domains",),
+                "description": "Enter domains separated by commas (e.g., example.com,test.org)",
+            },
+        ),
+        ("Timestamps", {"classes": ("collapse",), "fields": ("created_at", "updated_at")}),
+    )
+
+    def save_model(self, request, obj, form, change):
+        proposed_org_id = (obj.org_id or "").strip()
+        if not change and (
+            not proposed_org_id or Organization.objects.filter(org_id=proposed_org_id).exists()
+        ):
+            obj.org_id = unique_org_id(obj.name)
+        else:
+            obj.org_id = proposed_org_id
+
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description="Members")
+    def member_count(self, obj):
+        return obj.memberships.count()
+
+
+try:
+    admin.site.unregister(DjangoUser)
+except NotRegistered:
+    pass
+
+
+@admin.register(User)
+class UserAdmin(BaseUserAdmin):
+    form = CustomUserChangeForm
+    add_form = CustomUserCreationForm
+    list_display = (
+        "email",
+        "full_name",
+        "phone_number",
+        "organization",
+        "is_staff",
+        "is_active",
+    )
+    list_filter = ("is_staff", "is_active", OrganizationListFilter)
+    search_fields = ("email", "username", "first_name", "last_name", "asm_profile__phone_number")
+    ordering = ("email",)
+
+    fieldsets = (
+        (None, {"fields": ("email", "password")}),
+        ("Personal info", {"fields": ("full_name", "phone_number", "organization")}),
+        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser")}),
+        ("Groups", {"fields": ("groups",)}),
+        ("User permissions", {"fields": ("user_permissions",)}),
+    )
+
+    add_fieldsets = (
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": (
+                    "email",
+                    "full_name",
+                    "phone_number",
+                    "organization",
+                    "password",
+                    "password_confirmation",
+                    "is_staff",
+                    "is_active",
+                ),
+            },
+        ),
+    )
+
+    filter_horizontal = ("groups", "user_permissions")
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.prefetch_related("memberships__organization").select_related("asm_profile")
+
+    @admin.display(description="Full Name")
+    def full_name(self, obj):
+        return obj.get_full_name()
+
+    @admin.display(description="Phone Number")
+    def phone_number(self, obj):
+        profile = getattr(obj, "asm_profile", None)
+        return profile.phone_number if profile else ""
+
+    @admin.display(description="Organization")
+    def organization(self, obj):
+        membership = (
+            OrganizationMembership.objects.select_related("organization")
+            .filter(user=obj)
+            .first()
+        )
+        return membership.organization if membership else None
