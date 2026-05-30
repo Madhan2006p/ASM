@@ -4,7 +4,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User as DjangoUser
 from django.utils.text import slugify
 
-from authentication.models import OrganizationMembership
+from authentication.models import OrganizationMembership, UserDomain, UserProfile
 
 from .forms import CustomUserChangeForm, CustomUserCreationForm
 from .models import Organization, User
@@ -78,15 +78,25 @@ except NotRegistered:
     pass
 
 
+class UserDomainInline(admin.TabularInline):
+    model = UserDomain
+    extra = 1
+    verbose_name = "Assigned Domain"
+    verbose_name_plural = "Assigned Domains"
+    fields = ("domain",)
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     form = CustomUserChangeForm
     add_form = CustomUserCreationForm
+    inlines = [UserDomainInline]
     list_display = (
         "email",
         "full_name",
         "phone_number",
         "organization",
+        "features_display",
         "is_staff",
         "is_active",
     )
@@ -97,6 +107,13 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         ("Personal info", {"fields": ("full_name", "phone_number", "organization")}),
+        ("Feature Access", {
+            "fields": ("features",),
+            "description": "Comma-separated feature IDs. Leave empty to unlock all features.\n"
+            "1=Subdomains, 2=Endpoints, 3=Open Ports, 4=Directories,\n"
+            "5=Technologies, 6=Vulnerabilities, 7=SSL Certificates,\n"
+            "8=Email Security, 9=Scan History",
+        }),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser")}),
         ("Groups", {"fields": ("groups",)}),
         ("User permissions", {"fields": ("user_permissions",)}),
@@ -112,6 +129,7 @@ class UserAdmin(BaseUserAdmin):
                     "full_name",
                     "phone_number",
                     "organization",
+                    "features",
                     "password",
                     "password_confirmation",
                     "is_staff",
@@ -144,3 +162,19 @@ class UserAdmin(BaseUserAdmin):
             .first()
         )
         return membership.organization if membership else None
+
+    @admin.display(description="Features")
+    def features_display(self, obj):
+        profile = getattr(obj, "asm_profile", None)
+        if profile and profile.features:
+            feature_ids = [f.strip() for f in profile.features.split(",") if f.strip()]
+            feature_names = {
+                "1": "Subdomains", "2": "Endpoints", "3": "Open Ports",
+                "4": "Directories", "5": "Technologies", "6": "Vulnerabilities",
+                "7": "SSL", "8": "Email", "9": "Scans",
+            }
+            labels = [feature_names.get(fid, fid) for fid in feature_ids]
+            return ", ".join(labels)
+        return "All unlocked"
+
+

@@ -3,6 +3,7 @@ import { Table, Button, Form, Spinner, Alert, Badge } from 'react-bootstrap';
 import { useNavigate, useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { FiArrowLeft, FiDownload } from 'react-icons/fi';
+import LockedFeatureOverlay from '../components/LockedFeatureOverlay';
 import "../styles/DigitalFootprintsPage.css";
 import axios from 'axios';
 import { saveAs } from 'file-saver';
@@ -143,6 +144,7 @@ const DirectoriesPage = () => {
   // Removed full-page loading and error states to ensure the page opens instantly
 
   return (
+    <LockedFeatureOverlay featureId="4">
     <div className="digital-page">
       <Sidebar />
       <div className="digital-page-content">
@@ -301,6 +303,7 @@ const DirectoriesPage = () => {
         )}
       </div>
     </div>
+    </LockedFeatureOverlay>
   );
 };
 

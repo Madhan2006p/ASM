@@ -43,6 +43,21 @@ class UserSerializer(serializers.ModelSerializer):
         confirm = data.pop("confirm_password", None)
         if confirm and data.get("password") != confirm:
             raise serializers.ValidationError({"confirm_password": "Passwords do not match"})
+
+        # Check for duplicate username
+        username = data.get("username")
+        if username and User.objects.filter(username=username).exists():
+            raise serializers.ValidationError(
+                {"username": "A user with this username already exists."}
+            )
+
+        # Check for duplicate email
+        email = data.get("email")
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError(
+                {"email": "A user with this email address already exists."}
+            )
+
         return data
 
     def create(self, validated_data):

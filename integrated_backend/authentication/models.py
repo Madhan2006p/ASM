@@ -54,6 +54,33 @@ class UserProfile(models.Model):
         related_name="asm_profile",
     )
     phone_number = models.CharField(max_length=50, blank=True)
+    features = models.TextField(
+        blank=True,
+        default="",
+        help_text="Comma-separated feature IDs. E.g., 1,2,3\n"
+        "1=Subdomains, 2=Endpoints, 3=Open Ports, 4=Directories, \n"
+        "5=Technologies, 6=Vulnerabilities, 7=SSL Certificates, \n"
+        "8=Email Security, 9=Scan History",
+    )
 
     def __str__(self):
         return f"Profile for {self.user.username}"
+
+
+class UserDomain(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="assigned_domains",
+    )
+    domain = models.CharField(max_length=255, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Assigned Domain"
+        verbose_name_plural = "Assigned Domains"
+        unique_together = ("user", "domain")
+        ordering = ["domain"]
+
+    def __str__(self):
+        return f"{self.domain} ({self.user.username})"

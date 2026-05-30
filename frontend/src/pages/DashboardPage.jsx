@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Container, Row, Col, Card, Table, Badge, Modal, Button, Form, Spinner } from "react-bootstrap";
-import { FiPlusCircle, FiTrendingUp, FiShield, FiBell, FiEye, FiDownload, FiCheckCircle, FiAlertOctagon, FiAlertTriangle, FiAlertCircle, FiMonitor } from "react-icons/fi";
+import { FiShield, FiBell, FiDownload, FiAlertOctagon, FiAlertTriangle, FiAlertCircle, FiMonitor, FiLock } from "react-icons/fi";
 import Sidebar from "../components/Sidebar";
 import { useNavigate } from "react-router-dom";
 import * as jsPDFModule from "jspdf";
@@ -102,11 +102,12 @@ const DashboardPage = () => {
 
   // Tab State for Asset & Environment Explorer
   const [explorerTab, setExplorerTab] = useState("web_entities");
-  const [domainInput, setDomainInput] = useState("");
-  const [morningTime, setMorningTime] = useState("09:00");
-  const [nightTime, setNightTime] = useState("21:00");
+
+  
+  // Per-domain schedule state: { domain: { morning_time, night_time, saving } }
+  const [domainSchedules, setDomainSchedules] = useState({});
+  const [domainSavingMap, setDomainSavingMap] = useState({});
   const [monitoredDomains, setMonitoredDomains] = useState([]);
-  const [domainSaving, setDomainSaving] = useState(false);
 
   // States for extra explorer tabs
   const [buckets, setBuckets] = useState([]);
@@ -116,6 +117,9 @@ const DashboardPage = () => {
   const [discoverySources, setDiscoverySources] = useState([]);
   const [trends, setTrends] = useState([]);
   const [webEntities, setWebEntities] = useState([]);
+
+  const [assignedDomains, setAssignedDomains] = useState([]);
+  const [accessibleFeatures, setAccessibleFeatures] = useState([]);
 
   const [portCount, setPortCount] = useState(0);
 
@@ -263,6 +267,29 @@ const DashboardPage = () => {
     }
   }, []);
 
+  // Load assigned domains and features from localStorage user data
+  useEffect(() => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      if (user.assigned_domains && user.assigned_domains.length > 0) {
+        setAssignedDomains(user.assigned_domains);
+      }
+      if (user.features && user.features.length > 0) {
+        setAccessibleFeatures(user.features);
+      }
+    } catch {}
+
+    const handleLogin = () => {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        setAssignedDomains(user.assigned_domains || []);
+        setAccessibleFeatures(user.features || []);
+      } catch {}
+    };
+    window.addEventListener('userLogin', handleLogin);
+    return () => window.removeEventListener('userLogin', handleLogin);
+  }, []);
+
   useEffect(() => {
     const handleShowSub = () => setShowSubscriptionModal(true);
     window.addEventListener('showSubscription', handleShowSub);
@@ -356,65 +383,6 @@ const DashboardPage = () => {
     }
   };
 
-  const normalizeDomainInput = (value) => {
-    return value.trim().toLowerCase().replace(/https?:\/\//i, '').split('/')[0].split(':')[0].replace(/^www\./i, '');
-  };
-
-  const handleAddDomain = async (e) => {
-    e.preventDefault();
-    const domain = normalizeDomainInput(domainInput);
-    if (!domain) return;
-
-    // Check plan restriction: Free tier is limited to 1 monitored domain
-    if (userPlan === "Free" && monitoredDomains.length >= 1) {
-      setShowSubscriptionModal(true);
-      return;
-    }
-
-    setDomainSaving(true);
-    try {
-      const result = await addMonitoredDomain({
-        domain,
-        morning_time: morningTime,
-        night_time: nightTime,
-        morning_enabled: true,
-        night_enabled: true,
-        auto_scan_on_add: true,
-        scan_now: false,
-      });
-      await contextStartScan(domain);
-      setActivities(prev => [`Domain added, scheduled, and scan started for ${domain}`, ...prev.slice(0, 9)]);
-      setDomainInput("");
-    } catch {
-            setActivities(prev => [`Failed to add domain ${domain}. Server may be unavailable.`, ...prev.slice(0, 9)]);
-    } finally {
-      setDomainSaving(false);
-    }
-  };
-
-  const handleQuickScan = async () => {
-    const domain = normalizeDomainInput(domainInput || monitoredDomains[0]?.domain || "");
-    if (!domain) return;
-
-    // Check plan restriction: If scanning a NEW domain and Free limit is reached
-    const isExisting = monitoredDomains.some(m => m.domain === domain);
-    if (!isExisting && userPlan === "Free" && monitoredDomains.length >= 1) {
-      setShowSubscriptionModal(true);
-      return;
-    }
-
-    setDomainSaving(true);
-    try {
-      await contextStartScan(domain);
-      setActivities(prev => [`Quick scan started for ${domain}`, ...prev.slice(0, 9)]);
-      
-      setDomainInput("");
-    } catch {
-            setActivities(prev => [`Quick scan failed for ${domain}. Server may be unavailable.`, ...prev.slice(0, 9)])
-    } finally {
-      setDomainSaving(false);
-    }
-  };
 
   // Smart Subdomain wizard submit handler
   const handleWizardSubmit = (e) => {
@@ -722,6 +690,56 @@ const DashboardPage = () => {
       <div style={{ marginLeft: '280px', width: 'calc(100% - 280px)', padding: '24px 32px' }}>
         <h3 className="mb-4 fw-bold" style={{ color: 'var(--text-color)' }}>Dashboard Overview</h3>
 
+        {/* Assigned Domains & Features Banner */}
+        {(assignedDomains.length > 0 || accessibleFeatures.length > 0) && (
+          <Card className="border-0 mb-4" style={{
+            background: 'var(--header-bg)',
+            border: '1px solid var(--header-border)',
+            borderRadius: '12px',
+          }}>
+            <Card.Body className="py-3 px-4">
+              <div className="d-flex flex-wrap align-items-center gap-4">
+                {assignedDomains.length > 0 && (
+                  <div className="d-flex align-items-center gap-2">
+                    <FiMonitor size={16} className="text-primary" />
+                    <span className="small text-muted fw-semibold me-1">Your Domains:</span>
+                    {assignedDomains.map(d => (
+                      <Badge key={d} bg="primary" pill className="px-3 py-1.5" style={{ fontSize: '0.78rem' }}>
+                        {d}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {accessibleFeatures.length > 0 && (
+                  <div className="d-flex align-items-center gap-2">
+                    <FiShield size={16} className="text-success" />
+                    <span className="small text-muted fw-semibold me-1">Features:</span>
+                    {accessibleFeatures.map(f => {
+                      const labels = {'1':'Subdomains','2':'Endpoints','3':'Ports','4':'Dirs','5':'Tech','6':'Vulns','7':'SSL','8':'Email','9':'Scans'};
+                      return (
+                        <Badge key={f} bg="success" pill className="px-2" style={{ fontSize: '0.72rem' }}>
+                          {labels[f] || f}
+                        </Badge>
+                      );
+                    })}
+                    {(() => {
+                      const allIds = ['1','2','3','4','5','6','7','8','9'];
+                      const locked = allIds.filter(k => !accessibleFeatures.includes(k));
+                      if (locked.length > 0) return (
+                        <span className="small text-muted" style={{ opacity: 0.6 }}>
+                          <FiLock size={12} className="me-1" />
+                          {locked.length} locked
+                        </span>
+                      );
+                      return null;
+                    })()}
+                  </div>
+                )}
+              </div>
+            </Card.Body>
+          </Card>
+        )}
+
         {/* Metric Cards */}
         <Row className="mb-4 g-3">
           <Col md={2}>
@@ -914,40 +932,140 @@ const DashboardPage = () => {
                 <span className="text-muted small">Showing results for: <strong className="text-primary">{scannedDomain}</strong></span>
               )}
             </div>
-            <span className="text-muted small">Add a domain to auto-scan immediately, schedule morning/night scans, or run a quick scan anytime.</span>
+            <span className="text-muted small">Manage scan schedules and run quick scans on your admin-assigned domains.</span>
           </Card.Header>
           <Card.Body>
-            <Form onSubmit={handleAddDomain}>
-              <Row className="g-3 align-items-end">
-                <Col md={5}>
-                  <Form.Label className="small text-muted fw-semibold">Enter URL or Domain to Analyze</Form.Label>
-                  <Form.Control
-                    value={domainInput}
-                    onChange={(e) => setDomainInput(e.target.value)}
-                    placeholder="e.g. example.com or https://example.com"
-                    style={{ borderRadius: '10px' }}
-                  />
-                </Col>
-                <Col md={2}>
-                  <Form.Label className="small text-muted fw-semibold">Morning Scan</Form.Label>
-                  <Form.Control type="time" value={morningTime} onChange={(e) => setMorningTime(e.target.value)} style={{ borderRadius: '10px' }} />
-                </Col>
-                <Col md={2}>
-                  <Form.Label className="small text-muted fw-semibold">Night Scan</Form.Label>
-                  <Form.Control type="time" value={nightTime} onChange={(e) => setNightTime(e.target.value)} style={{ borderRadius: '10px' }} />
-                </Col>
-                <Col md={3} className="d-flex gap-2">
-                  <Button type="submit" variant="primary" disabled={domainSaving} className="flex-fill" style={{ borderRadius: '10px' }}>
-                    {domainSaving ? <Spinner animation="border" size="sm" /> : 'Add & Auto Scan'}
-                  </Button>
-                  <Button type="button" variant="outline-success" disabled={domainSaving} onClick={handleQuickScan} style={{ borderRadius: '10px' }}>
-                    Quick Scan
-                  </Button>
-                </Col>
-              </Row>
-            </Form>
+            {/* Assigned Domain Cards - Replace the free-form input */}
+            {assignedDomains.length > 0 && (
+              <div className="mb-4">
+                <div className="text-muted small fw-semibold mb-3">YOUR ASSIGNED DOMAINS — Schedule scans or run a quick scan</div>
+                <Row className="g-3">
+                  {assignedDomains.map(dom => {
+                    const existingMon = monitoredDomains.find(m => m.domain === dom);
+                    const sched = domainSchedules[dom] || {};
+                    const morningVal = existingMon?.morning_time?.slice(0, 5) || sched.morning_time || "09:00";
+                    const nightVal = existingMon?.night_time?.slice(0, 5) || sched.night_time || "21:00";
+                    const saving = domainSavingMap[dom] || false;
+                    
+                    const handleSchedule = async () => {
+                      setDomainSavingMap(prev => ({ ...prev, [dom]: true }));
+                      try {
+                        await addMonitoredDomain({
+                          domain: dom,
+                          morning_time: morningVal,
+                          night_time: nightVal,
+                          morning_enabled: true,
+                          night_enabled: true,
+                          auto_scan_on_add: false,
+                          scan_now: false,
+                        });
+                        setActivities(prev => [`Scheduled scans for ${dom}`, ...prev.slice(0, 9)]);
+                        // Refresh monitored domains to see updated schedule
+                        const updatedList = await fetchMonitoredDomains().catch(() => []);
+                        if (updatedList.length > 0) setMonitoredDomains(updatedList);
+                      } catch {
+                        setActivities(prev => [`Failed to schedule ${dom}`, ...prev.slice(0, 9)]);
+                      } finally {
+                        setDomainSavingMap(prev => ({ ...prev, [dom]: false }));
+                      }
+                    };
+                    
+                    const handleQuickScanForDomain = async () => {
+                      setDomainSavingMap(prev => ({ ...prev, [dom]: true }));
+                      try {
+                        await contextStartScan(dom);
+                        setActivities(prev => [`Quick scan started for ${dom}`, ...prev.slice(0, 9)]);
+                      } catch {
+                        setActivities(prev => [`Quick scan failed for ${dom}`, ...prev.slice(0, 9)]);
+                      } finally {
+                        setDomainSavingMap(prev => ({ ...prev, [dom]: false }));
+                      }
+                    };
+                    
+                    return (
+                      <Col md={6} lg={4} key={dom}>
+                        <Card className="border-0 h-100" style={{
+                          background: 'var(--header-bg)',
+                          border: '1px solid var(--header-border)',
+                          borderRadius: '14px',
+                          transition: 'all 0.2s',
+                        }}>
+                          <Card.Body>
+                            <div className="d-flex align-items-center gap-2 mb-3">
+                              <FiMonitor size={18} className="text-primary" />
+                              <h6 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>{dom}</h6>
+                              {existingMon && <Badge bg="success" pill style={{ fontSize: '0.65rem' }}>Scheduled</Badge>}
+                            </div>
+                            <div className="d-flex gap-2 mb-1">
+                              <div className="flex-fill">
+                                <Form.Label className="small text-muted fw-semibold" style={{ fontSize: '0.7rem' }}>Morning</Form.Label>
+                                <Form.Control 
+                                  type="time" 
+                                  value={morningVal}
+                                  onChange={(e) => {
+                                    setDomainSchedules(prev => ({
+                                      ...prev,
+                                      [dom]: { ...(prev[dom] || {}), morning_time: e.target.value }
+                                    }));
+                                  }}
+                                  style={{ borderRadius: '8px', height: '36px', fontSize: '0.82rem' }}
+                                />
+                              </div>
+                              <div className="flex-fill">
+                                <Form.Label className="small text-muted fw-semibold" style={{ fontSize: '0.7rem' }}>Night</Form.Label>
+                                <Form.Control 
+                                  type="time" 
+                                  value={nightVal}
+                                  onChange={(e) => {
+                                    setDomainSchedules(prev => ({
+                                      ...prev,
+                                      [dom]: { ...(prev[dom] || {}), night_time: e.target.value }
+                                    }));
+                                  }}
+                                  style={{ borderRadius: '8px', height: '36px', fontSize: '0.82rem' }}
+                                />
+                              </div>
+                            </div>
+                            <div className="d-flex gap-2 mt-3">
+                              <Button 
+                                size="sm" 
+                                variant={existingMon ? 'outline-secondary' : 'outline-primary'}
+                                className="flex-fill"
+                                disabled={saving || scanState.isScanning}
+                                onClick={handleSchedule}
+                                style={{ borderRadius: '8px', fontSize: '0.78rem' }}
+                              >
+                                {saving ? <Spinner animation="border" size="sm" /> : (existingMon ? 'Update Schedule' : 'Set Schedule')}
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="success"
+                                className="flex-fill"
+                                disabled={saving || scanState.isScanning}
+                                onClick={handleQuickScanForDomain}
+                                style={{ borderRadius: '8px', fontSize: '0.78rem' }}
+                              >
+                                Quick Scan
+                              </Button>
+                            </div>
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    );
+                  })}
+                </Row>
+              </div>
+            )}
+            {assignedDomains.length === 0 && (
+              <div className="mb-4 p-4 text-center text-muted" style={{ background: 'var(--bg-color)', borderRadius: '12px', border: '1px dashed var(--header-border)' }}>
+                <FiMonitor size={24} className="mb-2 opacity-50" />
+                <p className="small mb-0">No domains assigned yet. Contact your admin to get domains assigned to your account.</p>
+              </div>
+            )}
 
-            <div className="mt-4 table-responsive rounded-3 border" style={{ borderColor: 'var(--header-border)', background: 'var(--bg-color)' }}>
+            {/* Monitored Domains Table */}
+            <h6 className="fw-bold mb-3" style={{ color: 'var(--text-color)' }}>Monitored Domains</h6>
+            <div className="table-responsive rounded-3 border" style={{ borderColor: 'var(--header-border)', background: 'var(--bg-color)' }}>
               <Table hover className="mb-0 align-middle">
                 <thead>
                   <tr>
@@ -977,7 +1095,6 @@ const DashboardPage = () => {
                           variant="outline-success"
                           disabled={domainSaving || scanState.isScanning}
                           onClick={async () => {
-                            setDomainInput(item.domain);
                             await contextStartScan(item.domain);
                             setActivities(prev => [`Quick scan started for ${item.domain}`, ...prev.slice(0, 9)]);
                           }}
@@ -1506,38 +1623,9 @@ const DashboardPage = () => {
           </Card.Body>
         </Card>
 
-        {/* Quick Actions & Recent Activity */}
+        {/* Recent Activity Only */}
         <Row className="g-3">
-          <Col md={6}>
-            <Card 
-              className="border-0 h-100"
-              style={{
-                background: 'var(--header-bg)',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
-                borderRadius: '16px',
-                border: '1px solid var(--header-border)'
-              }}
-            >
-              <Card.Header className="bg-transparent border-bottom-0 pt-4 pb-2">
-                <h5 className="mb-0 fw-bold" style={{ color: 'var(--text-color)' }}>Quick Actions</h5>
-              </Card.Header>
-              <Card.Body>
-                <div className="d-flex flex-column gap-3">
-                  <button onClick={() => { setWizardStep("input_subdomain"); setInputSubdomainName(""); setSpecificPrefix(""); setSelectedExistingDomain(""); setNewRootDomain(""); setShowScanModal(true); }} className="btn btn-outline-primary text-start p-3 rounded-3 d-flex align-items-center" style={{ fontWeight: 500 }}>
-                    <FiPlusCircle className="me-3 fs-5" /> Start New Scan
-                  </button>
-                  <button onClick={() => setShowReportModal(true)} className="btn btn-outline-info text-start p-3 rounded-3 d-flex align-items-center" style={{ fontWeight: 500 }}>
-                    <FiTrendingUp className="me-3 fs-5" /> Generate Report
-                  </button>
-                  <button onClick={() => setShowCheckModal(true)} className="btn btn-outline-success text-start p-3 rounded-3 d-flex align-items-center" style={{ fontWeight: 500 }}>
-                    <FiShield className="me-3 fs-5" /> Run Security Check
-                  </button>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-          
-          <Col md={6}>
+          <Col md={12}>
             <Card 
               className="border-0 h-100"
               style={{
@@ -1552,7 +1640,7 @@ const DashboardPage = () => {
               </Card.Header>
               <Card.Body>
                 <div className="activity-feed">
-                  {activities.slice(0, 3).map((item, i) => (
+                  {activities.slice(0, 5).map((item, i) => (
                     <div key={i} className="d-flex mb-4 align-items-center">
                       <div className="me-3">
                         <div className="p-3 rounded-circle d-flex align-items-center justify-content-center" style={{ background: 'rgba(65, 105, 225, 0.1)', width: '45px', height: '45px' }}>

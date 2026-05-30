@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Organization, OrganizationMembership, UserProfile
+from .models import Organization, OrganizationMembership, UserDomain, UserProfile
 from .permissions import IsOrgAdmin
 from .serializers import (
     OrganizationMembershipSerializer,
@@ -36,7 +36,22 @@ def get_user_data(user):
         org_id = membership.organization.org_id
         org_name = membership.organization.name
         role = membership.role
+
+    # Ensure UserProfile exists for feature support & domain admin fields
     profile = getattr(user, "asm_profile", None)
+    if not profile:
+        profile = UserProfile.objects.get_or_create(user=user)[0]
+
+    # Parse features - comma-separated IDs, empty means all unlocked
+    features = []
+    if profile.features:
+        features = [f.strip() for f in profile.features.split(",") if f.strip()]
+
+    # Load admin-assigned domains the user is allowed to scan
+    assigned_domains = list(
+        UserDomain.objects.filter(user=user).values_list("domain", flat=True)
+    )
+
     return {
         "id": user.id,
         "name": user.get_full_name() or user.username,
@@ -46,6 +61,8 @@ def get_user_data(user):
         "organization_id": org_id,
         "organization": org_name,
         "role": role,
+        "features": features,
+        "assigned_domains": assigned_domains,
     }
 
 

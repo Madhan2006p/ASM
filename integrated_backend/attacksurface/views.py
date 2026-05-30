@@ -5,10 +5,12 @@ from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from authentication.models import UserDomain
 from authentication.permissions import (
     IsAuthenticatedAndOrgMember,
     get_user_org_id,
     get_user_org_id_from_data,
+    user_has_feature,
     user_has_module_permission,
 )
 
@@ -50,6 +52,11 @@ class AttackSurfaceBaseView(ListAPIView):
     def get_queryset(self):
         # Check module permission
         if self.required_module and not user_has_module_permission(
+            self.request.user, self.required_module
+        ):
+            return self.model.objects.none()
+        # Check feature access (in addition to role permission)
+        if self.required_module and not user_has_feature(
             self.request.user, self.required_module
         ):
             return self.model.objects.none()
@@ -161,6 +168,8 @@ class ScanListView(ListAPIView):
     def get_queryset(self):
         if not user_has_module_permission(self.request.user, "scan_history"):
             return AttackSurfaceScan.objects.none()
+        if not user_has_feature(self.request.user, "scan_history"):
+            return AttackSurfaceScan.objects.none()
         org_id = get_user_org_id(self.request)
         return AttackSurfaceScan.objects.filter(org_id=org_id).order_by("-created_at")
 
@@ -181,6 +190,26 @@ class ScanTriggerView(APIView):
         org_id = get_user_org_id_from_data(request)
         if not target:
             return Response({"error": "target is required"}, status=400)
+
+        # Check if user is allowed to scan this domain (superusers bypass)
+        if not request.user.is_superuser:
+            is_allowed = UserDomain.objects.filter(
+                user=request.user, domain=target
+            ).exists()
+            # Also check if the target matches any assigned domain at the root level
+            if not is_allowed:
+                assigned_domains = UserDomain.objects.filter(
+                    user=request.user
+                ).values_list("domain", flat=True)
+                is_allowed = any(
+                    target == d or target.endswith(f".{d}")
+                    for d in assigned_domains
+                )
+            if not is_allowed:
+                return Response(
+                    {"error": "You are not authorized to scan this domain. Contact your admin to get this domain assigned."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         scan = AttackSurfaceScan.objects.create(
             target=target, org_id=org_id, status="pending"
@@ -224,6 +253,25 @@ class MonitoredDomainListView(APIView):
         if not domain:
             return Response({"error": "domain is required"}, status=400)
 
+        # Check if user is allowed to manage this domain (superusers bypass)
+        if not request.user.is_superuser:
+            is_allowed = UserDomain.objects.filter(
+                user=request.user, domain=domain
+            ).exists()
+            if not is_allowed:
+                assigned_domains = UserDomain.objects.filter(
+                    user=request.user
+                ).values_list("domain", flat=True)
+                is_allowed = any(
+                    domain == d or domain.endswith(f".{d}")
+                    for d in assigned_domains
+                )
+            if not is_allowed:
+                return Response(
+                    {"error": "You are not authorized to manage this domain. Contact your admin to get this domain assigned."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         org_id = get_user_org_id_from_data(request)
 
         defaults = {
@@ -265,6 +313,26 @@ class DomainQuickScanView(APIView):
         org_id = get_user_org_id_from_data(request)
         if not domain:
             return Response({"error": "domain is required"}, status=400)
+
+        # Check if user is allowed to scan this domain (superusers bypass)
+        if not request.user.is_superuser:
+            is_allowed = UserDomain.objects.filter(
+                user=request.user, domain=domain
+            ).exists()
+            if not is_allowed:
+                assigned_domains = UserDomain.objects.filter(
+                    user=request.user
+                ).values_list("domain", flat=True)
+                is_allowed = any(
+                    domain == d or domain.endswith(f".{d}")
+                    for d in assigned_domains
+                )
+            if not is_allowed:
+                return Response(
+                    {"error": "You are not authorized to scan this domain. Contact your admin to get this domain assigned."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         scan = start_attack_surface_scan(domain, org_id)
         return Response({"scan_id": scan.id, "target": domain, "status": "pending"})
 
@@ -309,6 +377,8 @@ class ScanHistoryView(ListAPIView):
 
     def get_queryset(self):
         if not user_has_module_permission(self.request.user, "scan_history"):
+            return AttackSurfaceScan.objects.none()
+        if not user_has_feature(self.request.user, "scan_history"):
             return AttackSurfaceScan.objects.none()
         org_id = get_user_org_id(self.request)
         return AttackSurfaceScan.objects.filter(org_id=org_id).order_by("-created_at")

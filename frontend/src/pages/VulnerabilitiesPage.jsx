@@ -3,6 +3,7 @@ import { Table, Button, Form, Spinner, Alert, Badge } from 'react-bootstrap';
 import { useNavigate, useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { FiArrowLeft, FiDownload } from 'react-icons/fi';
+import LockedFeatureOverlay from '../components/LockedFeatureOverlay';
 import "../styles/DigitalFootprintsPage.css";
 import axios from 'axios';
 import fileSaver from 'file-saver';
@@ -151,6 +152,7 @@ const getSeverityBadge = React.useCallback((severity) => {
   // Removed full-page loading state to ensure instant open
 
   return (
+    <LockedFeatureOverlay featureId="6">
     <div className="digital-page">
       <Sidebar />
       <div className="digital-page-content">
@@ -264,6 +266,7 @@ const getSeverityBadge = React.useCallback((severity) => {
         </div>
       </div>
     </div>
+    </LockedFeatureOverlay>
   );
 };
 

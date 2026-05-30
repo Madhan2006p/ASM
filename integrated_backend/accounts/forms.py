@@ -22,6 +22,7 @@ class AdminUserFormMixin:
             profile = getattr(instance, "asm_profile", None)
             if profile:
                 self.fields["phone_number"].initial = profile.phone_number
+                self.fields["features"].initial = profile.features
             membership = (
                 instance.memberships.select_related("organization").first()
                 if hasattr(instance, "memberships")
@@ -80,6 +81,18 @@ class CustomUserCreationForm(AdminUserFormMixin, forms.ModelForm):
         queryset=Organization.objects.all(),
         required=False,
     )
+    features = forms.CharField(
+        label="Features",
+        required=False,
+        max_length=500,
+        widget=forms.TextInput(attrs={"placeholder": "e.g., 1,2,3"}),
+        help_text=(
+            "Comma-separated feature IDs. Leave empty to unlock all features.<br>"
+            "1=Subdomains, 2=Endpoints, 3=Open Ports, 4=Directories,<br>"
+            "5=Technologies, 6=Vulnerabilities, 7=SSL Certificates,<br>"
+            "8=Email Security, 9=Scan History"
+        ),
+    )
     password = forms.CharField(
         label="Password",
         widget=forms.PasswordInput,
@@ -98,7 +111,7 @@ class CustomUserCreationForm(AdminUserFormMixin, forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ("email", "full_name", "phone_number", "organization", "is_staff", "is_active")
+        fields = ("email", "full_name", "phone_number", "organization", "features", "is_staff", "is_active")
 
     def clean(self):
         cleaned_data = super().clean()
@@ -118,6 +131,18 @@ class CustomUserCreationForm(AdminUserFormMixin, forms.ModelForm):
             user.save()
             self.save_m2m()
             self.save_profile_and_membership(user)
+        # Save features to UserProfile regardless of commit -
+        # Django admin calls form.save(commit=False) internally,
+        # so we need to persist features even when commit=False.
+        # Guard with user.pk: for new unsaved users, the admin will
+        # call save_model() which calls obj.save() to persist the user first.
+        if user.pk:
+            from authentication.models import UserProfile
+            UserProfile.objects.update_or_create(
+                user=user,
+                defaults={"features": self.cleaned_data.get("features", ""),
+                          "phone_number": self.cleaned_data.get("phone_number", "")},
+            )
         return user
 
 
@@ -129,6 +154,18 @@ class CustomUserChangeForm(AdminUserFormMixin, UserChangeForm):
         queryset=Organization.objects.all(),
         required=False,
     )
+    features = forms.CharField(
+        label="Features",
+        required=False,
+        max_length=500,
+        widget=forms.TextInput(attrs={"placeholder": "e.g., 1,2,3"}),
+        help_text=(
+            "Comma-separated feature IDs. Leave empty to unlock all features.<br>"
+            "1=Subdomains, 2=Endpoints, 3=Open Ports, 4=Directories,<br>"
+            "5=Technologies, 6=Vulnerabilities, 7=SSL Certificates,<br>"
+            "8=Email Security, 9=Scan History"
+        ),
+    )
 
     class Meta:
         model = User
@@ -138,6 +175,7 @@ class CustomUserChangeForm(AdminUserFormMixin, UserChangeForm):
             "full_name",
             "phone_number",
             "organization",
+            "features",
             "is_active",
             "is_staff",
             "is_superuser",
@@ -151,4 +189,13 @@ class CustomUserChangeForm(AdminUserFormMixin, UserChangeForm):
             user.save()
             self.save_m2m()
             self.save_profile_and_membership(user)
+        # Save features to UserProfile regardless of commit -
+        # Django admin calls form.save(commit=False) internally,
+        # so we need to persist features even when commit=False.
+        if user.pk:
+            from authentication.models import UserProfile
+            UserProfile.objects.update_or_create(
+                user=user,
+                defaults={"features": self.cleaned_data.get("features", "")},
+            )
         return user

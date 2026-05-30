@@ -168,6 +168,20 @@ def get_user_org_id_from_data(request):
     return get_user_org_id(request)
 
 
+# Feature number to module mapping (for feature-based access control)
+FEATURE_MODULE_MAP = {
+    "1": "subdomains",
+    "2": "endpoints",
+    "3": "open_ports",
+    "4": "directories",
+    "5": "technologies",
+    "6": "vulnerabilities",
+    "7": "ssl_certificates",
+    "8": "email_security",
+    "9": "scan_history",
+}
+
+
 def user_has_module_permission(user, module_name):
     """Check if a user has permission for a given module based on their org role."""
     if not user or not user.is_authenticated:
@@ -177,6 +191,34 @@ def user_has_module_permission(user, module_name):
         return False
     allowed = ROLE_PERMISSIONS.get(role, set())
     return module_name in allowed
+
+
+def user_has_feature(user, module_name):
+    """Check if a user has a specific feature unlocked by module name.
+    
+    If the user's features field is empty, all features are considered unlocked.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    profile = getattr(user, "asm_profile", None)
+    if not profile or not profile.features:
+        # Empty features = all unlocked
+        return True
+    feature_ids = [f.strip() for f in profile.features.split(",") if f.strip()]
+    if not feature_ids:
+        return True
+    # Find which feature number corresponds to this module
+    feature_id = None
+    for fid, mod in FEATURE_MODULE_MAP.items():
+        if mod == module_name:
+            feature_id = fid
+            break
+    if feature_id is None:
+        # No feature lock for this module
+        return True
+    return feature_id in feature_ids
 
 
 class HasModulePermission(permissions.BasePermission):

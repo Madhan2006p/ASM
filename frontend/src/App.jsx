@@ -13,6 +13,7 @@ import OpenPortsPage from "./pages/OpenPortsPage";
 import TechnologiesPage from "./pages/TechnologiesPage";
 import SSLCertificatePage from "./pages/SSLCertificatePage";
 import VulnerabilitiesPage from "./pages/VulnerabilitiesPage";
+import EmailSecurityPage from "./pages/EmailSecurityPage";
 import ScanDetailPage from "./pages/ScanDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import MarketplacePage from "./pages/MarketplacePage";
@@ -23,17 +24,17 @@ import { checkAuth } from "./utils/api";
 const MODULE_ACCESS = {
   admin: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates',
+    '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
     '/scan-detail', '/marketplace', '/settings',
   ],
   member: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates',
+    '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
     '/scan-detail', '/marketplace', '/settings',
   ],
   viewer: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
-    '/technologies', '/vulnerabilities', '/ssl-certificates',
+    '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
     '/settings',
   ],
 };
@@ -80,6 +81,7 @@ const ProtectedRoute = ({ children, requiredModules = [] }) => {
         // Save fresh user data from JWT verification response
         if (res.user) {
           localStorage.setItem('user', JSON.stringify(res.user));
+          window.dispatchEvent(new Event('userLogin'));
         }
         
         try {
@@ -170,6 +172,9 @@ function App() {
             } />
             <Route path="/ssl-certificates" element={
               <ProtectedRoute><SSLCertificatePage /></ProtectedRoute>
+            } />
+            <Route path="/email-security" element={
+              <ProtectedRoute><EmailSecurityPage /></ProtectedRoute>
             } />
             <Route path="/settings" element={
               <ProtectedRoute><SettingsPage /></ProtectedRoute>

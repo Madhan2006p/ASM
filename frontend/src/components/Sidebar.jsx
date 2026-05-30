@@ -1,35 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../utils/api';
-import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiActivity, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown } from 'react-icons/fi';
+import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiMail, FiActivity, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown } from 'react-icons/fi';
 import '../styles/Sidebar.css';
 
 // Role-to-permission mapping matches backend
 const ROLE_PERMISSIONS = {
   admin: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
-    'technologies', 'vulnerabilities', 'ssl_certificates', 'scan_history',
+    'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
     'trigger_scan', 'manage_domains', 'marketplace', 'settings',
     'reconnaissance', 'fuzzing', 'manage_users',
   ],
   member: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
-    'technologies', 'vulnerabilities', 'ssl_certificates', 'scan_history',
+    'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
     'trigger_scan', 'manage_domains', 'marketplace', 'settings',
     'reconnaissance', 'fuzzing',
   ],
   viewer: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
-    'technologies', 'vulnerabilities', 'ssl_certificates', 'scan_history',
+    'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
     'settings',
   ],
 };
+
+
 
 const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isAssetDiscoveryOpen, setIsAssetDiscoveryOpen] = useState(true);
   const [userRole, setUserRole] = useState(null);
+  const [userFeatures, setUserFeatures] = useState(null);
 
   useEffect(() => {
     const updateRole = () => {
@@ -38,11 +41,16 @@ const Sidebar = () => {
         try {
           const user = JSON.parse(userData);
           setUserRole(user.role || null);
+          // features is an array of feature IDs like ['1', '2', '3']
+          // null/undefined/empty means all features unlocked
+          setUserFeatures(user.features || null);
         } catch {
           setUserRole(null);
+          setUserFeatures(null);
         }
       } else {
         setUserRole(null);
+        setUserFeatures(null);
       }
     };
     updateRole();
@@ -63,6 +71,18 @@ const Sidebar = () => {
   };
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
+
+  // Helper to render a feature link (always clickable — locking is handled at page level)
+  const renderFeatureLink = (module, label, icon, path) => {
+    if (!hasPermission(module)) return null;
+    return (
+      <li>
+        <Link to={path} className={isActive(path)}>
+          <span>{icon}</span> {label}
+        </Link>
+      </li>
+    );
+  };
   
   const assetDiscoveryRoutes = ['/subdomains', '/endpoints', '/open-ports', '/directories', '/technologies', '/vulnerabilities'];
   const isAssetDiscoveryActive = assetDiscoveryRoutes.some(route => location.pathname === route);
@@ -110,60 +130,19 @@ const Sidebar = () => {
             </div>
             {isAssetDiscoveryOpen && (
               <ul className="submenu">
-                {hasPermission('subdomains') && (
-                  <li>
-                    <Link to="/subdomains" className={isActive('/subdomains')}>
-                      <span><FiMonitor size={18} /></span> Subdomains
-                    </Link>
-                  </li>
-                )}
-                {hasPermission('endpoints') && (
-                  <li>
-                    <Link to="/endpoints" className={isActive('/endpoints')}>
-                      <span><FiRadio size={18} /></span> Endpoints
-                    </Link>
-                  </li>
-                )}
-                {hasPermission('open_ports') && (
-                  <li>
-                    <Link to="/open-ports" className={isActive('/open-ports')}>
-                      <span><FiTool size={18} /></span> Open Ports
-                    </Link>
-                  </li>
-                )}
-                {hasPermission('directories') && (
-                  <li>
-                    <Link to="/directories" className={isActive('/directories')}>
-                      <span><FiFolder size={18} /></span> Directories
-                    </Link>
-                  </li>
-                )}
-                {hasPermission('technologies') && (
-                  <li>
-                    <Link to="/technologies" className={isActive('/technologies')}>
-                      <span><FiTool size={18} /></span> Technologies
-                    </Link>
-                  </li>
-                )}
+                {renderFeatureLink('subdomains', 'Subdomains', <FiMonitor size={18} />, '/subdomains')}
+                {renderFeatureLink('endpoints', 'Endpoints', <FiRadio size={18} />, '/endpoints')}
+                {renderFeatureLink('open_ports', 'Open Ports', <FiTool size={18} />, '/open-ports')}
+                {renderFeatureLink('directories', 'Directories', <FiFolder size={18} />, '/directories')}
+                {renderFeatureLink('technologies', 'Technologies', <FiTool size={18} />, '/technologies')}
               </ul>
             )}
           </li>
         )}
 
-        {hasPermission('vulnerabilities') && (
-          <li>
-            <Link to="/vulnerabilities" className={isActive('/vulnerabilities')}>
-              <span><FiShield size={18} /></span> Vulnerabilities
-            </Link>
-          </li>
-        )}
-        {hasPermission('ssl_certificates') && (
-          <li>
-            <Link to="/ssl-certificates" className={isActive('/ssl-certificates')}>
-              <span><FiLock size={18} /></span> SSL Certificate
-            </Link>
-          </li>
-        )}
+        {renderFeatureLink('vulnerabilities', 'Vulnerabilities', <FiShield size={18} />, '/vulnerabilities')}
+        {renderFeatureLink('ssl_certificates', 'SSL Certificate', <FiLock size={18} />, '/ssl-certificates')}
+        {renderFeatureLink('email_security', 'Email Security', <FiMail size={18} />, '/email-security')}
 
         {hasPermission('marketplace') && (
           <li>
