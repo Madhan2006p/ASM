@@ -61,3 +61,4 @@ Thumbs.db
 # ─── Windows reserved device names (can't be deleted) ──────────────────────────
 nul
 frontend/nul
+*.log
