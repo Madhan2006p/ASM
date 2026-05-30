@@ -4,7 +4,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+<<<<<<< HEAD
 from .serializers import UserSerializer
+=======
+from .models import Organization, OrganizationMembership, UserDomain, UserProfile
+from .permissions import IsOrgAdmin
+from .serializers import (
+    OrganizationMembershipSerializer,
+    OrganizationSerializer,
+    UserSerializer,
+)
+>>>>>>> latest
 
 User = get_user_model()
 
@@ -18,13 +28,53 @@ def get_tokens_for_user(user):
 
 
 def get_user_data(user):
+<<<<<<< HEAD
+=======
+    membership = (
+        user.memberships.select_related("organization").first()
+        if hasattr(user, "memberships") and user.pk
+        else None
+    )
+    org_id = "1"
+    org_name = "Default Org"
+    role = "member"
+    if membership:
+        org_id = membership.organization.org_id
+        org_name = membership.organization.name
+        role = membership.role
+
+    # Ensure UserProfile exists for feature support & domain admin fields
+    profile = getattr(user, "asm_profile", None)
+    if not profile:
+        profile = UserProfile.objects.get_or_create(user=user)[0]
+
+    # Parse features - comma-separated IDs, empty means all unlocked
+    features = []
+    if profile.features:
+        features = [f.strip() for f in profile.features.split(",") if f.strip()]
+
+    # Load admin-assigned domains the user is allowed to scan
+    assigned_domains = list(
+        UserDomain.objects.filter(user=user).values_list("domain", flat=True)
+    )
+
+>>>>>>> latest
     return {
         "id": user.id,
         "name": user.get_full_name() or user.username,
         "email": user.email,
         "username": user.username,
+<<<<<<< HEAD
         "organization_id": "1",
         "organization": "Default Org",
+=======
+        "phone_number": profile.phone_number if profile else "",
+        "organization_id": org_id,
+        "organization": org_name,
+        "role": role,
+        "features": features,
+        "assigned_domains": assigned_domains,
+>>>>>>> latest
     }
 
 
@@ -104,3 +154,276 @@ class CheckAuthView(APIView):
 
     def get(self, request):
         return Response({"authenticated": True, "user": get_user_data(request.user)})
+<<<<<<< HEAD
+=======
+
+
+# ─── Organization Management Views ────────────────────────────────────────────
+
+class OrganizationListView(APIView):
+    """List organizations for the current user and create new ones."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        organizations = Organization.objects.filter(
+            memberships__user=request.user
+        ).distinct()
+        serializer = OrganizationSerializer(
+            organizations, many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        name = request.data.get("name", "").strip()
+        if not name:
+            return Response(
+                {"error": "Organization name is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        org = Organization.objects.create(
+            name=name, org_id=name.lower().replace(" ", "-")[:50]
+        )
+        OrganizationMembership.objects.create(
+            user=request.user, organization=org, role="admin"
+        )
+        serializer = OrganizationSerializer(org, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class OrganizationDetailView(APIView):
+    """Get or update organization details (admin only)."""
+    permission_classes = [permissions.IsAuthenticated, IsOrgAdmin]
+
+    def get(self, request, org_id):
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id
+        ).first()
+        if not membership:
+            return Response({"error": "Organization not found"}, status=404)
+        serializer = OrganizationSerializer(
+            membership.organization, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def patch(self, request, org_id):
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id, role="admin"
+        ).first()
+        if not membership:
+            return Response({"error": "Not authorized"}, status=403)
+        org = membership.organization
+        name = request.data.get("name")
+        if name:
+            org.name = name.strip()
+            org.save()
+        serializer = OrganizationSerializer(org, context={"request": request})
+        return Response(serializer.data)
+
+
+class OrganizationMembersView(APIView):
+    """List and manage organization members (admin only)."""
+    permission_classes = [permissions.IsAuthenticated, IsOrgAdmin]
+
+    def get(self, request, org_id):
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id, role="admin"
+        ).first()
+        if not membership:
+            return Response({"error": "Not authorized"}, status=403)
+        members = OrganizationMembership.objects.filter(
+            organization=membership.organization
+        ).select_related("user", "organization")
+        serializer = OrganizationMembershipSerializer(members, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, org_id):
+        """Add a member to the organization."""
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id, role="admin"
+        ).first()
+        if not membership:
+            return Response({"error": "Not authorized"}, status=403)
+
+        email = request.data.get("email", "")
+        role = request.data.get("role", "member")
+        if role not in ("admin", "member", "viewer"):
+            role = "member"
+
+        try:
+            invited_user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User with this email not found"}, status=404
+            )
+
+        _, created = OrganizationMembership.objects.get_or_create(
+            user=invited_user,
+            organization=membership.organization,
+            defaults={"role": role},
+        )
+        if not created:
+            return Response(
+                {"error": "User is already a member"}, status=409
+            )
+        return Response({"message": "Member added successfully"}, status=201)
+
+    def patch(self, request, org_id):
+        """Update a member's role."""
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id, role="admin"
+        ).first()
+        if not membership:
+            return Response({"error": "Not authorized"}, status=403)
+
+        member_id = request.data.get("member_id")
+        new_role = request.data.get("role", "member")
+        if new_role not in ("admin", "member", "viewer"):
+            return Response({"error": "Invalid role"}, status=400)
+
+        updated = OrganizationMembership.objects.filter(
+            id=member_id, organization=membership.organization
+        ).update(role=new_role)
+        if not updated:
+            return Response({"error": "Member not found"}, status=404)
+        return Response({"message": "Role updated successfully"})
+
+    def delete(self, request, org_id):
+        """Remove a member from the organization."""
+        membership = request.user.memberships.filter(
+            organization__org_id=org_id, role="admin"
+        ).first()
+        if not membership:
+            return Response({"error": "Not authorized"}, status=403)
+
+        member_id = request.data.get("member_id")
+        deleted, _ = OrganizationMembership.objects.filter(
+            id=member_id, organization=membership.organization
+        ).exclude(role="admin").delete()
+        if not deleted:
+            return Response({"error": "Member not found or cannot remove admin"}, status=404)
+        return Response({"message": "Member removed successfully"})
+
+
+# ─── Admin: Create User Accounts Directly ──────────────────────────────────
+
+class AdminCreateUserView(APIView):
+    """
+    Admin-only endpoint to create user accounts with direct password assignment.
+    Allows superusers and org admins to create users and assign them to orgs.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsOrgAdmin]
+
+    def post(self, request):
+        username = request.data.get("username", "").strip()
+        email = request.data.get("email", "").strip()
+        password = request.data.get("password", "")
+        org_id = request.data.get("org_id", "")
+        role = request.data.get("role", "member")
+        full_name = request.data.get("full_name", "").strip()
+        phone_number = request.data.get("phone_number", request.data.get("phone", "")).strip()
+
+        if not username or not email or not password:
+            return Response(
+                {"error": "username, email, and password are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role not in ("admin", "member", "viewer"):
+            role = "member"
+
+        # Validate org_id — the admin must be admin of this org OR be superuser
+        if request.user.is_superuser:
+            try:
+                org = Organization.objects.get(org_id=org_id)
+            except Organization.DoesNotExist:
+                return Response({"error": "Organization not found"}, status=404)
+        else:
+            membership = request.user.memberships.filter(
+                organization__org_id=org_id, role="admin"
+            ).first()
+            if not membership:
+                return Response({"error": "Organization not found or unauthorized"}, status=404)
+            org = membership.organization
+
+        # Check for existing user
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already taken"}, status=409)
+        if User.objects.filter(email=email).exists():
+            return Response({"error": "Email already registered"}, status=409)
+
+        # Create user
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=full_name.split(" ")[0] if full_name else "",
+            last_name=" ".join(full_name.split(" ")[1:]) if full_name and len(full_name.split(" ")) > 1 else "",
+        )
+
+        # Assign to org
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=org,
+            role=role,
+        )
+        UserProfile.objects.update_or_create(
+            user=user,
+            defaults={"phone_number": phone_number},
+        )
+
+        return Response(
+            {
+                "message": "User created successfully",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "full_name": full_name,
+                    "phone_number": phone_number,
+                    "organization_id": org.org_id,
+                    "organization": org.name,
+                    "role": role,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ListOrganizationUsersView(APIView):
+    """
+    List all users belonging to a specific organization (admin only).
+    """
+    permission_classes = [permissions.IsAuthenticated, IsOrgAdmin]
+
+    def get(self, request, org_id):
+        # Verify admin has access to this org
+        if request.user.is_superuser:
+            try:
+                org = Organization.objects.get(org_id=org_id)
+            except Organization.DoesNotExist:
+                return Response({"error": "Organization not found"}, status=404)
+        else:
+            membership = request.user.memberships.filter(
+                organization__org_id=org_id, role="admin"
+            ).first()
+            if not membership:
+                return Response({"error": "Not authorized"}, status=403)
+            org = membership.organization
+
+        members = OrganizationMembership.objects.filter(
+            organization=org
+        ).select_related("user", "organization")
+
+        data = []
+        for m in members:
+            data.append({
+                "id": m.user.id,
+                "username": m.user.username,
+                "email": m.user.email,
+                "full_name": f"{m.user.first_name} {m.user.last_name}".strip(),
+                "is_active": m.user.is_active,
+                "role": m.role,
+                "joined_at": m.joined_at,
+            })
+
+        return Response(data)
+>>>>>>> latest

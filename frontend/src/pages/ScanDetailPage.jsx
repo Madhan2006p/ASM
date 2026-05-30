@@ -267,7 +267,11 @@ const ScanDetailPage = () => {
         {/* Header */}
         <div className="digital-header d-flex justify-content-between align-items-center mb-4">
           <div className="d-flex align-items-center gap-3">
+<<<<<<< HEAD
             <Button variant="outline-secondary" size="sm" onClick={() => navigate('/scan-history')} className="rounded-circle px-2">
+=======
+            <Button variant="outline-secondary" size="sm" onClick={() => navigate('/dashboard')} className="rounded-circle px-2">
+>>>>>>> latest
               <FiArrowLeft size={16} />
             </Button>
             <h2 className="mb-0">Scan Details</h2>
@@ -279,7 +283,11 @@ const ScanDetailPage = () => {
             <Button variant="outline-success" size="sm" onClick={exportToExcel} disabled={vulnerabilities.length === 0}>
               <FiDownload className="me-1" size={14} /> Excel
             </Button>
+<<<<<<< HEAD
             <Button variant="outline-secondary" size="sm" onClick={() => navigate('/scan-history')}>
+=======
+            <Button variant="outline-secondary" size="sm" onClick={() => navigate('/dashboard')}>
+>>>>>>> latest
               <FiArrowLeft className="me-1" size={14} /> Back
             </Button>
           </div>
@@ -298,7 +306,11 @@ const ScanDetailPage = () => {
           <div className="text-center py-5">
             <div className="mb-3" style={{ fontSize: '3rem', opacity: 0.3 }}>⚠️</div>
             <p className="text-danger mb-1">{error}</p>
+<<<<<<< HEAD
             <Button variant="outline-primary" onClick={() => navigate('/scan-history')} className="mt-2">
+=======
+            <Button variant="outline-primary" onClick={() => navigate('/dashboard')} className="mt-2">
+>>>>>>> latest
               Return to Scan History
             </Button>
           </div>

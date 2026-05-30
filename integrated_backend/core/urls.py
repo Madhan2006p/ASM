@@ -37,3 +37,12 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+<<<<<<< HEAD
+=======
+
+# Error handlers
+handler400 = 'core.views.handler400'
+handler403 = 'core.views.handler403'
+handler404 = 'core.views.handler404'
+handler500 = 'core.views.handler500'
+>>>>>>> latest

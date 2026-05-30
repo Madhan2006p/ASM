@@ -209,6 +209,11 @@ class AttackSurfaceScanSerializer(serializers.ModelSerializer):
 
 
 class MonitoredDomainSerializer(serializers.ModelSerializer):
+<<<<<<< HEAD
+=======
+    latest_scan_id = serializers.SerializerMethodField()
+
+>>>>>>> latest
     class Meta:
         model = MonitoredDomain
         fields = [
@@ -224,4 +229,15 @@ class MonitoredDomainSerializer(serializers.ModelSerializer):
             "last_night_scan_at",
             "created_at",
             "updated_at",
+<<<<<<< HEAD
         ]
+=======
+            "latest_scan_id",
+        ]
+
+    def get_latest_scan_id(self, obj):
+        scan = AttackSurfaceScan.objects.filter(
+            target=obj.domain, org_id=obj.org_id
+        ).order_by("-created_at").first()
+        return scan.id if scan else None
+>>>>>>> latest

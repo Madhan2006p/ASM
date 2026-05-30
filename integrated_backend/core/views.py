@@ -34,3 +34,23 @@ def api_root(request):
         "version": "1.0",
         "endpoints": endpoints,
     })
+<<<<<<< HEAD
+=======
+
+
+# Error handlers
+def handler400(request, exception=None):
+    return JsonResponse({"error": "Bad request"}, status=400)
+
+
+def handler403(request, exception=None):
+    return JsonResponse({"error": "Permission denied"}, status=403)
+
+
+def handler404(request, exception=None):
+    return JsonResponse({"error": "Not found"}, status=404)
+
+
+def handler500(request):
+    return JsonResponse({"error": "Server error"}, status=500)
+>>>>>>> latest
