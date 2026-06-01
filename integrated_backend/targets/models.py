@@ -1,15 +1,10 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-<<<<<<< HEAD
-class Target(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-=======
 
 class Target(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     org_id = models.CharField(max_length=50, db_index=True, default="1")
->>>>>>> latest
     domain = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True)
     added_on = models.DateTimeField(auto_now_add=True)
@@ -18,14 +13,11 @@ class Target(models.Model):
     def __str__(self):
         return self.domain
 
-<<<<<<< HEAD
-=======
     class Meta:
         indexes = [
             models.Index(fields=["org_id", "domain"]),
         ]
 
->>>>>>> latest
 class Endpoint(models.Model):
     target = models.ForeignKey(Target, related_name='endpoints', on_delete=models.CASCADE)
     url = models.URLField(max_length=2048)

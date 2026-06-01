@@ -1,8 +1,6 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-<<<<<<< HEAD
-=======
 
 from authentication.permissions import (
     HasModulePermission,
@@ -11,19 +9,10 @@ from authentication.permissions import (
     user_has_module_permission,
 )
 
->>>>>>> latest
 from .models import Vulnerability
 from .serializers import VulnerabilitySerializer
 from scans.models import Scan
 
-<<<<<<< HEAD
-class VulnerabilityViewSet(viewsets.ModelViewSet):
-    serializer_class = VulnerabilitySerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return Vulnerability.objects.select_related('target').filter(target__user=self.request.user)
-=======
 
 
 class VulnerabilityViewSet(viewsets.ModelViewSet):
@@ -37,27 +26,17 @@ class VulnerabilityViewSet(viewsets.ModelViewSet):
             target__user=self.request.user,
             target__user__memberships__organization__org_id=org_id,
         )
->>>>>>> latest
 
     @action(detail=False, methods=['get'])
     def by_scan(self, request):
         """Return vulnerabilities for a given scan ID, matched by target + source_tool."""
-<<<<<<< HEAD
-=======
         if not user_has_module_permission(request.user, "vulnerabilities"):
             return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
->>>>>>> latest
         scan_id = request.query_params.get('scan_id')
         if not scan_id:
             return Response({'error': 'scan_id query parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-<<<<<<< HEAD
-        try:
-            scan = Scan.objects.select_related('target').get(
-                id=scan_id,
-                target__user=request.user
-=======
         org_id = get_user_org_id(request)
 
         try:
@@ -65,7 +44,6 @@ class VulnerabilityViewSet(viewsets.ModelViewSet):
                 id=scan_id,
                 target__user=request.user,
                 target__user__memberships__organization__org_id=org_id,
->>>>>>> latest
             )
         except Scan.DoesNotExist:
             return Response({'error': 'Scan not found'}, status=status.HTTP_404_NOT_FOUND)

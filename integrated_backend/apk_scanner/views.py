@@ -3,15 +3,12 @@ from rest_framework import viewsets, permissions, status, parsers
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.conf import settings
-<<<<<<< HEAD
-=======
 
 from authentication.permissions import (
     HasModulePermission,
     IsAuthenticatedAndOrgMember,
 )
 
->>>>>>> latest
 from .models import APKFile, APKAnalysis
 from .serializers import APKFileSerializer, APKAnalysisSerializer, APKUploadSerializer
 from .tasks import analyze_apk_file
@@ -19,12 +16,8 @@ from .tasks import analyze_apk_file
 
 class APKFileViewSet(viewsets.ModelViewSet):
     serializer_class = APKFileSerializer
-<<<<<<< HEAD
-    permission_classes = [permissions.IsAuthenticated]
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "apk_scanner"
->>>>>>> latest
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     queryset = APKFile.objects.all()

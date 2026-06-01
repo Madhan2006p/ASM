@@ -1,12 +1,6 @@
 import threading
 
 from rest_framework import permissions, status
-<<<<<<< HEAD
-from rest_framework.generics import ListCreateAPIView, ListAPIView, RetrieveAPIView
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-=======
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,7 +14,6 @@ from authentication.permissions import (
     user_has_module_permission,
 )
 
->>>>>>> latest
 from .models import (
     AttackSurfaceScan,
     DirectoryResult,
@@ -48,21 +41,6 @@ from .serializers import (
 from .services import run_full_scan
 
 
-<<<<<<< HEAD
-class AttackSurfaceBaseView(ListAPIView):
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def get_org_id(self):
-        return self.request.query_params.get("org_id", "1")
-
-    def get_queryset(self):
-        qs = self.model.objects.filter(org_id=self.get_org_id())
-        scan_id = self.request.query_params.get("scan")
-        if scan_id:
-            qs = qs.filter(scan_id=scan_id)
-        return qs
-=======
 
 class AttackSurfaceBaseView(ListAPIView):
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
@@ -132,96 +110,58 @@ class AttackSurfaceBaseView(ListAPIView):
             }
             
         return response
->>>>>>> latest
 
 
 class SubdomainListView(AttackSurfaceBaseView):
     serializer_class = SubdomainResultSerializer
     model = SubdomainResult
-<<<<<<< HEAD
-=======
     required_module = "subdomains"
->>>>>>> latest
 
 
 class EndpointListView(AttackSurfaceBaseView):
     serializer_class = EndpointResultSerializer
     model = EndpointResult
-<<<<<<< HEAD
-=======
     required_module = "endpoints"
->>>>>>> latest
 
 
 class PortListView(AttackSurfaceBaseView):
     serializer_class = PortResultSerializer
     model = PortResult
-<<<<<<< HEAD
-=======
     required_module = "open_ports"
->>>>>>> latest
 
 
 class DirectoryListView(AttackSurfaceBaseView):
     serializer_class = DirectoryResultSerializer
     model = DirectoryResult
-<<<<<<< HEAD
-=======
     required_module = "directories"
->>>>>>> latest
 
 
 class TechnologyListView(AttackSurfaceBaseView):
     serializer_class = TechnologyResultSerializer
     model = TechnologyResult
-<<<<<<< HEAD
-=======
     required_module = "technologies"
->>>>>>> latest
 
 
 class VulnerabilityListView(AttackSurfaceBaseView):
     serializer_class = VulnerabilityResultSerializer
     model = VulnerabilityResult
-<<<<<<< HEAD
-=======
     required_module = "vulnerabilities"
->>>>>>> latest
 
 
 class SSLResultListView(AttackSurfaceBaseView):
     serializer_class = SSLResultSerializer
     model = SSLResult
-<<<<<<< HEAD
-=======
     required_module = "ssl_certificates"
->>>>>>> latest
 
 
 class EmailSecurityListView(AttackSurfaceBaseView):
     serializer_class = EmailSecurityResultSerializer
     model = EmailSecurityResult
-<<<<<<< HEAD
-=======
     required_module = "email_security"
->>>>>>> latest
 
 
 class ScanListView(ListAPIView):
     serializer_class = AttackSurfaceScanSerializer
-<<<<<<< HEAD
-    queryset = AttackSurfaceScan.objects.all().order_by("-created_at")
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-
-class ScanTriggerView(APIView):
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        import re
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
     required_module = "scan_history"
 
@@ -242,18 +182,11 @@ class ScanTriggerView(APIView):
         if not user_has_module_permission(request.user, "trigger_scan"):
             return Response({"error": "Permission denied"}, status=403)
 
->>>>>>> latest
         target = request.data.get("target", "").strip().lower()
         # Normalize: strip protocol, path, port, www
         target = re.sub(r'^https?://', '', target)
         target = target.split('/')[0].split(':')[0]
         target = re.sub(r'^www\.', '', target)
-<<<<<<< HEAD
-        org_id = request.data.get("org_id", "1")
-        if not target:
-            return Response({"error": "target is required"}, status=400)
-
-=======
         org_id = get_user_org_id_from_data(request)
         if not target:
             return Response({"error": "target is required"}, status=400)
@@ -278,7 +211,6 @@ class ScanTriggerView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
->>>>>>> latest
         scan = AttackSurfaceScan.objects.create(
             target=target, org_id=org_id, status="pending"
         )
@@ -300,30 +232,19 @@ def start_attack_surface_scan(target, org_id="1"):
 
 
 class MonitoredDomainListView(APIView):
-<<<<<<< HEAD
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        org_id = request.query_params.get("org_id", "1")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
 
     def get(self, request):
         if not user_has_module_permission(request.user, "manage_domains"):
             return Response({"error": "Permission denied"}, status=403)
         org_id = get_user_org_id(request)
->>>>>>> latest
         qs = MonitoredDomain.objects.filter(org_id=org_id)
         return Response(MonitoredDomainSerializer(qs, many=True).data)
 
     def post(self, request):
-<<<<<<< HEAD
-=======
         if not user_has_module_permission(request.user, "manage_domains"):
             return Response({"error": "Permission denied"}, status=403)
 
->>>>>>> latest
         import re
         domain = request.data.get("domain", "").strip().lower()
         domain = re.sub(r'^https?://', '', domain)
@@ -332,8 +253,6 @@ class MonitoredDomainListView(APIView):
         if not domain:
             return Response({"error": "domain is required"}, status=400)
 
-<<<<<<< HEAD
-=======
         # Check if user is allowed to manage this domain (superusers bypass)
         if not request.user.is_superuser:
             is_allowed = UserDomain.objects.filter(
@@ -355,7 +274,6 @@ class MonitoredDomainListView(APIView):
 
         org_id = get_user_org_id_from_data(request)
 
->>>>>>> latest
         defaults = {
             "morning_time": request.data.get("morning_time") or "09:00",
             "night_time": request.data.get("night_time") or "21:00",
@@ -381,29 +299,17 @@ class MonitoredDomainListView(APIView):
 
 
 class DomainQuickScanView(APIView):
-<<<<<<< HEAD
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
 
     def post(self, request):
         if not user_has_module_permission(request.user, "trigger_scan"):
             return Response({"error": "Permission denied"}, status=403)
 
->>>>>>> latest
         import re
         domain = request.data.get("domain", "").strip().lower()
         domain = re.sub(r'^https?://', '', domain)
         domain = domain.split('/')[0].split(':')[0]
         domain = re.sub(r'^www\.', '', domain)
-<<<<<<< HEAD
-        org_id = request.data.get("org_id", "1")
-        if not domain:
-            return Response({"error": "domain is required"}, status=400)
-=======
         org_id = get_user_org_id_from_data(request)
         if not domain:
             return Response({"error": "domain is required"}, status=400)
@@ -427,7 +333,6 @@ class DomainQuickScanView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
->>>>>>> latest
         scan = start_attack_surface_scan(domain, org_id)
         return Response({"scan_id": scan.id, "target": domain, "status": "pending"})
 
@@ -435,20 +340,6 @@ class DomainQuickScanView(APIView):
 class ScanStatusView(RetrieveAPIView):
     queryset = AttackSurfaceScan.objects.all()
     serializer_class = AttackSurfaceScanSerializer
-<<<<<<< HEAD
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-    lookup_field = "id"
-
-
-class ScanHistoryView(ListAPIView):
-    serializer_class = AttackSurfaceScanSerializer
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def get_queryset(self):
-        org_id = self.request.query_params.get("org_id", "1")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
     lookup_field = "id"
 
@@ -490,22 +381,14 @@ class ScanHistoryView(ListAPIView):
         if not user_has_feature(self.request.user, "scan_history"):
             return AttackSurfaceScan.objects.none()
         org_id = get_user_org_id(self.request)
->>>>>>> latest
         return AttackSurfaceScan.objects.filter(org_id=org_id).order_by("-created_at")
 
 
 class ClearDatabaseView(APIView):
-<<<<<<< HEAD
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-
-    def delete(self, request):
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
 
     def delete(self, request):
         org_id = get_user_org_id(request)
->>>>>>> latest
         counts = {}
         models_in_order = [
             ("vulnerabilities", VulnerabilityResult),
@@ -519,17 +402,6 @@ class ClearDatabaseView(APIView):
             ("scans", AttackSurfaceScan),
         ]
         for name, model in models_in_order:
-<<<<<<< HEAD
-            c = model.objects.count()
-            model.objects.all().delete()
-            counts[name] = c
-        return Response({"deleted": counts, "message": "All scan data cleared successfully"})
-
-
-class ToolsHealthView(APIView):
-    authentication_classes = []
-    permission_classes = [permissions.AllowAny]
-=======
             c = model.objects.filter(org_id=org_id).count()
             model.objects.filter(org_id=org_id).delete()
             counts[name] = c
@@ -538,7 +410,6 @@ class ToolsHealthView(APIView):
 
 class ToolsHealthView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
->>>>>>> latest
 
     def get(self, request):
         import os
@@ -614,10 +485,6 @@ class ToolsHealthView(APIView):
                 }
 
         # Check Wappalyzer Python Module
-<<<<<<< HEAD
-        try:
-            import Wappalyzer
-=======
         wappalyzer_available = False
         for mod_name in ['wappalyzer', 'Wappalyzer']:
             try:
@@ -627,18 +494,13 @@ class ToolsHealthView(APIView):
             except ImportError:
                 continue
         if wappalyzer_available:
->>>>>>> latest
             wappalyzer_health = {
                 "status": "AVAILABLE",
                 "path": "Python Packages (Wappalyzer)",
                 "version": "python-Wappalyzer (Latest)",
                 "error": None
             }
-<<<<<<< HEAD
-        except ImportError:
-=======
         else:
->>>>>>> latest
             wappalyzer_health = {
                 "status": "MISSING",
                 "path": "python-Wappalyzer",
@@ -648,21 +510,6 @@ class ToolsHealthView(APIView):
 
         # Master mapping of tools to check
         tools_list = [
-<<<<<<< HEAD
-            ("subfinder", getattr(settings, "SUBFINDER_PATH", "subfinder"), ["-version"]),
-            ("assetfinder", getattr(settings, "ASSETFINDER_PATH", "assetfinder"), ["-h"]),
-            ("naabu", getattr(settings, "NAABU_PATH", "naabu"), ["-version"]),
-            ("httpx", getattr(settings, "HTTPX_PATH", "httpx"), ["-version"]),
-            ("nmap", getattr(settings, "NMAP_PATH", "nmap"), ["-V"]),
-            ("nuclei", getattr(settings, "NUCLEI_PATH", "nuclei"), ["-version"]),
-            ("testssl.sh", getattr(settings, "TESTSSL_PATH", "testssl.sh"), ["--help"]),
-            ("dirsearch", getattr(settings, "DIRSEARCH_PATH", "dirsearch"), ["--version"]),
-            ("arjun", getattr(settings, "ARJUN_PATH", "arjun"), ["--help"]),
-            ("inql", getattr(settings, "INQL_PATH", "inql"), ["--help"]),
-            ("gau", getattr(settings, "GAU_PATH", "gau"), ["--version"]),
-            ("waybackurls", getattr(settings, "WAYBACKURLS_PATH", "waybackurls"), ["-h"]),
-            ("grpcurl", getattr(settings, "GRPCURL_PATH", "grpcurl"), ["-help"]),
-=======
             ("subfinder", getattr(settings, "SUBFINDER_PATH", None) or "subfinder", ["-version"]),
             ("assetfinder", getattr(settings, "ASSETFINDER_PATH", None) or "assetfinder", ["-h"]),
             ("findomain", getattr(settings, "FINDOMAIN_PATH", None) or "findomain", ["--version"]),
@@ -678,16 +525,11 @@ class ToolsHealthView(APIView):
             ("gau", getattr(settings, "GAU_PATH", None) or "gau", ["--version"]),
             ("waybackurls", getattr(settings, "WAYBACKURLS_PATH", None) or "waybackurls", ["-h"]),
             ("grpcurl", getattr(settings, "GRPCURL_PATH", None) or "grpcurl", ["-help"]),
->>>>>>> latest
         ]
 
         results = []
 
-<<<<<<< HEAD
-        # 1. Add Wappalyzer
-=======
         # 1. Add built-in scanners (whatweb, wappalyzer - Python-based, no binary needed)
->>>>>>> latest
         results.append({
             "key": "Wappalyzer",
             "name": "Wappalyzer",
@@ -696,8 +538,6 @@ class ToolsHealthView(APIView):
             **wappalyzer_health
         })
 
-<<<<<<< HEAD
-=======
         # WhatWeb is a built-in pure-Python scanner - check if module is importable
         try:
             # Try importing the whatweb scanner module to verify it's functional
@@ -728,7 +568,6 @@ class ToolsHealthView(APIView):
         # WhatWeb is built-in, no binary check needed. Skip binary tools_list entry.
         tools_list = [t for t in tools_list if t[0] != 'whatweb']
 
->>>>>>> latest
         # 2. Add others
         friendly_names = {
             "subfinder": ("Subfinder", "Subdomain Discovery", "10 seconds"),
@@ -742,14 +581,10 @@ class ToolsHealthView(APIView):
             "arjun": ("Arjun Finder", "HTTP Parameter Discovery", "20 seconds"),
             "inql": ("InQL GraphQL Auditor", "GraphQL Security Analysis", "25 seconds"),
             "gau": ("GAU (GetAllUrls)", "Historical Endpoint Scraping", "15 seconds"),
-<<<<<<< HEAD
-            "waybackurls": ("Waybackurls", "Wayback Archive Crawling", "12 seconds"),
-=======
             "findomain": ("Findomain", "Subdomain Monitoring", "10 seconds"),
             "wapiti": ("Wapiti", "Web Vulnerability Scanner", "60 seconds"),
             "waybackurls": ("Waybackurls", "Wayback Archive Crawling", "12 seconds"),
             "whatweb": ("WhatWeb", "Technology Detection", "15 seconds"),
->>>>>>> latest
             "grpcurl": ("gRPCurl Lister", "gRPC Service Introspection", "15 seconds"),
         }
 

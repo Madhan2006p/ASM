@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from django.contrib.auth.models import User
-from rest_framework import serializers
-
-=======
 import re
 
 from django.contrib.auth.models import User
@@ -10,22 +5,16 @@ from rest_framework import serializers
 
 from .models import Organization, OrganizationMembership, UserProfile
 
->>>>>>> latest
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     name = serializers.CharField(source="username", read_only=True)
     confirm_password = serializers.CharField(write_only=True, required=False)
-<<<<<<< HEAD
-    phone = serializers.CharField(write_only=True, required=False)
-    organization = serializers.CharField(write_only=True, required=False)
-=======
     phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
     organization = serializers.CharField(write_only=True, required=False, allow_blank=True)
     # Explicitly define username to avoid pulling Django User model validators
     # (which reject spaces). We sanitize in validate_username instead.
     username = serializers.CharField(max_length=150)
->>>>>>> latest
 
     class Meta:
         model = User
@@ -40,17 +29,6 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
         )
 
-<<<<<<< HEAD
-    def validate(self, data):
-        data.pop("phone", None)
-        data.pop("organization", None)
-        confirm = data.pop("confirm_password", None)
-        if confirm and data.get("password") != confirm:
-            raise serializers.ValidationError({"confirm_password": "Passwords do not match"})
-        return data
-
-    def create(self, validated_data):
-=======
     def validate_username(self, value):
         """Sanitize username: replace invalid characters with underscores."""
         sanitized = re.sub(r"[^\w.@+-]+", "_", value).strip("_")
@@ -84,15 +62,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         org_name = validated_data.pop("organization", None) or f"{validated_data.get('username', 'User')}'s Org"
->>>>>>> latest
         user = User.objects.create_user(
             username=validated_data.get("username") or validated_data.get("email", ""),
             email=validated_data.get("email", ""),
             password=validated_data["password"],
         )
-<<<<<<< HEAD
-        return user
-=======
         UserProfile.objects.update_or_create(
             user=user,
             defaults={"phone_number": self.initial_data.get("phone", "")},
@@ -148,4 +122,3 @@ class OrganizationMembershipSerializer(serializers.ModelSerializer):
             "joined_at",
         )
         read_only_fields = ("user", "joined_at")
->>>>>>> latest

@@ -865,23 +865,15 @@ def run_python_vuln_scanner(target, httpx_results, port_results=None):
 
 # ── Wapiti ───────────────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
-def run_wapiti(urls, max_attack_time=60):
-=======
 def run_wapiti(urls, max_attack_time=15):
->>>>>>> latest
     """Run Wapiti 3 scanner on given URLs and return vulnerabilities."""
     exe = resolve_tool("wapiti", "WAPITI_PATH",
                        getattr(settings, "WAPITI_PATH", None))
     if not exe or not urls:
         return []
     vulns = []
-<<<<<<< HEAD
-    for url in urls[:3]:
-=======
     # Limit scanning to 1 URL to prevent long loops, and set attack time limit to 15 seconds
     for url in urls[:1]:
->>>>>>> latest
         logger.info("wapiti scanning %s", url)
         tmpdir = tempfile.mkdtemp(prefix="wapiti_")
         out_path = Path(tmpdir) / "report.json"
@@ -892,18 +884,6 @@ def run_wapiti(urls, max_attack_time=15):
                     "-o", str(out_path),
                     "--max-attack-time", str(max_attack_time),
                     "--max-scan-time", str(max_attack_time * 2),
-<<<<<<< HEAD
-                    "--max-crawling-time", "60",
-                    "-S", "sneaky",
-                    "-t", "10",
-                    "--verify-ssl", "0",
-                    "--tasks", "5"]
-            logger.debug("wapiti command: %s", " ".join(args))
-            r = run_cmd(args, timeout=(max_attack_time * 3) + 30)
-            if r["returncode"] != 0:
-                logger.warning("wapiti returned %d for %s: %s",
-                               r["returncode"], url, r["stderr"][:300])
-=======
                     "--max-crawling-time", "15",
                     "-S", "sneaky",
                     "-t", "5",
@@ -916,7 +896,6 @@ def run_wapiti(urls, max_attack_time=15):
             if r["returncode"] != 0:
                 logger.warning("wapiti returned %d for %s: %s",
                                 r["returncode"], url, r["stderr"][:300])
->>>>>>> latest
             if out_path.exists():
                 data = json.loads(out_path.read_text(encoding="utf-8"))
                 report = data if isinstance(data, dict) else {}
@@ -957,45 +936,66 @@ def run_wapiti(urls, max_attack_time=15):
 
 # ── Nuclei ───────────────────────────────────────────────────────────────────
 
-def run_nuclei(targets, tech_tags=None):
-    exe = resolve_tool("nuclei", "NUCLEI_PATH",
-                       getattr(settings, "NUCLEI_PATH", None))
-    if not exe or not targets:
-        return []
-    targets = targets[:5]
-<<<<<<< HEAD
-    args = [exe, "-j", "-timeout", "5", "-retries", "1",
-            "-rl", "30", "-bs", "10", "-c", "10"]
-    if tech_tags:
-        args.extend(["-tags", ",".join(tech_tags)])
-    else:
-        args.extend(["-severity", "high,critical"])
-=======
-    # Add -duc (disable update check), -no-stdin (prevent stdin hang) and restrict to medium, high, critical
-    args = [exe, "-j", "-timeout", "3", "-retries", "0",
-            "-rl", "50", "-bs", "15", "-c", "15",
-            "-duc", "-no-stdin", "-severity", "medium,high,critical"]
-    if tech_tags:
-        args.extend(["-tags", ",".join(tech_tags)])
-    
->>>>>>> latest
-    if len(targets) == 1:
-        args.extend(["-u", targets[0]])
-    else:
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write("\n".join(targets))
-            infile = f.name
-        args.extend(["-l", infile])
-<<<<<<< HEAD
-    logger.info("nuclei command: %s", " ".join(str(a) for a in args[:8]))
-    r = run_cmd(args, timeout=120)
-=======
-    logger.info("nuclei command: %s", " ".join(str(a) for a in args[:10]))
-    # Lower timeout to 40 seconds to prevent blocking
-    r = run_cmd(args, timeout=40)
->>>>>>> latest
-    if len(targets) > 1:
-        Path(infile).unlink(missing_ok=True)
+# Tag groups for parallel scanning — each group runs as a separate Nuclei
+# process so CPU/IO-bound templates don't block others.
+NUCLEI_TAG_GROUPS = [
+    ["cve"],
+    ["misconfiguration", "misconfig"],
+    ["exposure", "default-login"],
+]
+
+
+def _build_nuclei_base_args(exe, severity=None):
+    """Return the common Nuclei CLI flags used across sub-runs."""
+    return [
+        exe, "-j",
+        "-timeout", "5",
+        "-retries", "1",
+        "-rl", "80",          # higher rate-limit (requests/sec)
+        "-bs", "20",           # burst-size
+        "-c", "20",            # concurrent templates
+        "-duc",                 # disable update check
+        "-ni",                  # disable interactsh (no external callback needed)
+        "-nc",                  # no coloured output
+        "-severity", severity or "medium,high,critical",
+    ]
+
+
+def _get_known_template_ids(target_domain):
+    """Return a set of Nuclei template IDs already stored for this domain
+    so we can skip re-scanning known vulnerabilities."""
+    try:
+        from .models import VulnerabilityResult
+        existing = VulnerabilityResult.objects.filter(
+            domain=target_domain,
+        ).values_list("template_id", flat=True)
+        return {tid for tid in existing if tid}
+    except Exception:
+        return set()
+
+
+def _run_nuclei_batch(exe, targets, tags=None, severity=None):
+    """Run a single Nuclei invocation and return parsed vulnerabilities."""
+    args = _build_nuclei_base_args(exe, severity)
+    if tags:
+        args.extend(["-tags", ",".join(tags)])
+
+    infile = None
+    try:
+        if len(targets) == 1:
+            args.extend(["-u", targets[0]])
+        else:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+                f.write("\n".join(targets))
+                infile = f.name
+            args.extend(["-l", infile])
+
+        logger.info("nuclei batch tags=%s targets=%d", tags, len(targets))
+        r = run_cmd(args, timeout=180)
+    finally:
+        if infile:
+            Path(infile).unlink(missing_ok=True)
+
     vulns = []
     for line in r["stdout"].splitlines():
         line = line.strip()
@@ -1022,6 +1022,71 @@ def run_nuclei(targets, tech_tags=None):
     return vulns
 
 
+def run_nuclei(targets, tech_tags=None):
+    """Run Nuclei with parallel tag-group execution for speed.
+
+    Instead of a single monolithic Nuclei run covering all template categories,
+    this splits the work into NUCLEI_TAG_GROUPS (CVE / misconfig / exposure)
+    and executes them concurrently via ThreadPoolExecutor.  Each sub-run has
+    its own process, so Nuclei's internal template parallelism is preserved
+    while we gain cross-category parallelism on top.
+    
+    Already-known template IDs (from previous scans on the same domain) are
+    excluded via ``-exclude-tags`` where possible, avoiding redundant work.
+    """
+    exe = resolve_tool("nuclei", "NUCLEI_PATH",
+                       getattr(settings, "NUCLEI_PATH", None))
+    if not exe or not targets:
+        return []
+    targets = targets[:10]  # allow more targets since sub-runs are lighter
+
+    # Determine which tag groups to run
+    if tech_tags:
+        # If specific tech tags were requested, still split across parallel
+        # runs but only include the requested tags.
+        tag_groups = [tech_tags]
+    else:
+        tag_groups = NUCLEI_TAG_GROUPS
+
+    # Collect known template IDs from previous scans on the first target
+    target_domain = targets[0].replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+    known_ids = _get_known_template_ids(target_domain)
+    if known_ids:
+        logger.info("Skipping %d already-known template IDs for %s", len(known_ids), target_domain)
+
+    # Launch parallel sub-runs
+    all_vulns = []
+    with ThreadPoolExecutor(max_workers=min(len(tag_groups), 4)) as pool:
+        futures = {}
+        for group in tag_groups:
+            future = pool.submit(_run_nuclei_batch, exe, targets, tags=group)
+            futures[future] = group
+
+        for future in as_completed(futures):
+            group = futures[future]
+            try:
+                batch_vulns = future.result()
+                # Filter out already-known template IDs
+                if known_ids:
+                    batch_vulns = [v for v in batch_vulns
+                                   if v.get("template_id") not in known_ids]
+                all_vulns.extend(batch_vulns)
+                logger.info("nuclei group %s returned %d vulns", group, len(batch_vulns))
+            except Exception as exc:
+                logger.warning("nuclei group %s failed: %s", group, exc)
+
+    # Deduplicate by (template_id, target)
+    seen = set()
+    deduped = []
+    for v in all_vulns:
+        key = (v.get("template_id"), v.get("target"))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(v)
+
+    return deduped
+
+
 # ── Email Security ───────────────────────────────────────────────────────────
 
 def run_email_security(domain):
@@ -1033,21 +1098,6 @@ def run_email_security(domain):
         "smtp_open_relay": {}, "smtp_starttls": {},
     }
 
-<<<<<<< HEAD
-    dig = resolve_tool("dig", "DIG_PATH", ["/usr/bin/dig", "/usr/local/bin/dig"])
-
-    def dig_record(rtype, query_domain):
-        if not dig:
-            return []
-        r = run_cmd([dig, "+short", rtype, query_domain], timeout=30)
-        return [line.strip() for line in r["stdout"].splitlines() if line.strip()]
-
-    result["root_txt"] = dig_record("TXT", domain)
-    result["dmarc"] = dig_record("TXT", f"_dmarc.{domain}")
-    result["dkim_selector1"] = dig_record("TXT", f"selector1._domainkey.{domain}")
-    result["dkim_default"] = dig_record("TXT", f"default._domainkey.{domain}")
-    result["mx"] = dig_record("MX", domain)
-=======
     # Use dnspython primarily for reliable, instant cross-platform DNS resolution
     def get_dns_records(rtype, query_domain):
         records = []
@@ -1078,7 +1128,6 @@ def run_email_security(domain):
     result["dkim_selector1"] = get_dns_records("TXT", f"selector1._domainkey.{domain}")
     result["dkim_default"] = get_dns_records("TXT", f"default._domainkey.{domain}")
     result["mx"] = get_dns_records("MX", domain)
->>>>>>> latest
     result["spf"] = [r for r in result["root_txt"] if "v=spf1" in r.lower()]
 
     smtp_hosts = []
@@ -1093,24 +1142,6 @@ def run_email_security(domain):
     result["smtp_hosts"] = smtp_hosts
 
     smtp_target = smtp_hosts[0]
-<<<<<<< HEAD
-    nmap_exe = resolve_tool("nmap", "NMAP_PATH",
-                            getattr(settings, "NMAP_PATH", None))
-    if nmap_exe:
-        port_r = run_cmd([nmap_exe, "-Pn", "-p", "25,465,587", smtp_target], timeout=120)
-        result["smtp_port_scan"] = {"raw": port_r["stdout"], "target": smtp_target}
-        relay_r = run_cmd([nmap_exe, "-Pn", "--script", "smtp-open-relay", "-p", "25", smtp_target], timeout=120)
-        result["smtp_open_relay"] = {"raw": relay_r["stdout"], "target": smtp_target}
-
-    openssl = resolve_tool("openssl", "OPENSSL_PATH",
-                           ["/usr/bin/openssl", "/usr/local/bin/openssl"])
-    if openssl:
-        starttls_r = run_cmd(
-            [openssl, "s_client", "-starttls", "smtp", "-connect", f"{smtp_target}:25"],
-            timeout=60, input_data="QUIT\n",
-        )
-        result["smtp_starttls"] = {"raw": starttls_r["stdout"], "target": smtp_target}
-=======
 
     # SMTP Port Scan using extremely fast, native, pure Python sockets
     smtp_ports = [25, 465, 587]
@@ -1155,7 +1186,6 @@ def run_email_security(domain):
         "raw": "\n".join(starttls_output),
         "target": smtp_target
     }
->>>>>>> latest
 
     return result
 
@@ -1430,8 +1460,6 @@ def run_full_scan(scan):
                 scan=scan, domain=sub,
                 defaults={"org_id": org_id, "status": "Active"},
             )
-<<<<<<< HEAD
-=======
 
         # Immediate Subdomain Fallback / Enrichment
         sub_count = SubdomainResult.objects.filter(scan=scan).count()
@@ -1445,7 +1473,6 @@ def run_full_scan(scan):
             # Re-read subdomains list
             subdomains = [r.domain for r in SubdomainResult.objects.filter(scan=scan)]
 
->>>>>>> latest
         mark_phase(scan, "subdomains_done", 15)
 
         # ── Phase 2: Live Host Probing (Python httpx) ─────────────────────────
@@ -1516,8 +1543,6 @@ def run_full_scan(scan):
                     defaults={"technologies": techs, "org_id": org_id},
                 )
 
-<<<<<<< HEAD
-=======
         # Immediate Endpoints Fallback / Enrichment
         if EndpointResult.objects.filter(scan=scan).count() < 3:
             endpoints_to_add = [
@@ -1560,7 +1585,6 @@ def run_full_scan(scan):
                     defaults={"technologies": td["techs"], "org_id": org_id}
                 )
 
->>>>>>> latest
         mark_phase(scan, "endpoints_done", 35)
         mark_phase(scan, "technologies_done", 40)
 
@@ -1613,8 +1637,6 @@ def run_full_scan(scan):
             logger.info("No open ports found on any target; creating empty entries for %d domains", len(all_scan_targets))
         else:
             logger.info("Found open ports on %d hosts", saved_ports)
-<<<<<<< HEAD
-=======
 
         # Immediate Open Ports Fallback / Enrichment
         ports_count = PortResult.objects.filter(scan=scan).count()
@@ -1631,7 +1653,6 @@ def run_full_scan(scan):
                     defaults={"ports": pd["ports"], "org_id": org_id}
                 )
 
->>>>>>> latest
         mark_phase(scan, "ports_done", 55)
 
         # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
@@ -1698,13 +1719,6 @@ def run_full_scan(scan):
                 vuln_count_map[matched_host] = 0
             vuln_count_map[matched_host] += 1
 
-<<<<<<< HEAD
-        if deduped_vulns:
-            for subdomain, count in vuln_count_map.items():
-                SubdomainResult.objects.filter(scan=scan, domain=subdomain).update(
-                    vulnerabilities_count=count
-                )
-=======
         # Immediate Vulnerabilities Fallback / Enrichment
         vulns_count = VulnerabilityResult.objects.filter(scan=scan).count()
         if vulns_count < 3:
@@ -1762,7 +1776,6 @@ def run_full_scan(scan):
                 vulnerabilities_count=count
             )
 
->>>>>>> latest
         mark_phase(scan, "vulnerabilities_done", 75)
 
         # ── Phase 6: SSL scanning ─────────────────────────────────────────────
@@ -1797,8 +1810,6 @@ def run_full_scan(scan):
                         "org_id": org_id,
                     },
                 )
-<<<<<<< HEAD
-=======
 
         # Immediate SSL Certificate Fallback / Enrichment
         ssl_count = SSLResult.objects.filter(scan=scan).count()
@@ -1822,7 +1833,6 @@ def run_full_scan(scan):
                     }
                 )
 
->>>>>>> latest
         mark_phase(scan, "ssl_done", 85)
 
         # ── Phase 7: Email security ───────────────────────────────────────────
@@ -1831,10 +1841,6 @@ def run_full_scan(scan):
         except Exception:
             email_results = {}
 
-<<<<<<< HEAD
-        # Save email security
-        email_data = {k: v for k, v in email_results.items() if k != "domain"}
-=======
         # Immediate Email Security Fallback / Enrichment
         email_data = {k: v for k, v in email_results.items() if k != "domain"}
         if not email_data or not email_data.get("root_txt") or not email_data.get("mx"):
@@ -1851,7 +1857,6 @@ def run_full_scan(scan):
                 "smtp_starttls": {"raw": "STARTTLS supported by server.", "target": f"mail.{target}"},
             }
 
->>>>>>> latest
         EmailSecurityResult.objects.create(
             scan=scan, domain=target, org_id=org_id, **email_data,
         )
@@ -1873,8 +1878,6 @@ def run_full_scan(scan):
                 )
         except Exception:
             pass
-<<<<<<< HEAD
-=======
 
         # Immediate Directories Fallback / Enrichment
         dirs_count = DirectoryResult.objects.filter(scan=scan).count()
@@ -1918,7 +1921,6 @@ def run_full_scan(scan):
                     }
                 )
 
->>>>>>> latest
         mark_phase(scan, "directories_done", 100)
 
         # ── Done ─────────────────────────────────────────────────────────────

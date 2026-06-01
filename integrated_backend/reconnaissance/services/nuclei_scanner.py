@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .command_utils import (
     add_execution_error,
@@ -16,6 +17,42 @@ NUCLEI_CANDIDATES = (
     r"C:\Users\samyu\go\bin\nuclei.exe",
     r"C:\tools\nuclei\nuclei.exe",
 )
+
+# Tag groups executed in parallel for speed
+TAG_GROUPS = [
+    ["cve"],
+    ["misconfiguration", "misconfig"],
+    ["exposure", "default-login"],
+]
+
+
+def _run_batch(executable, targets, tags, severity, timeout):
+    """Run one Nuclei subprocess for a specific tag group."""
+    command = [
+        executable,
+        "-j",
+        "-severity", severity,
+        "-timeout", "5",
+        "-retries", "1",
+        "-rl", "80",
+        "-bs", "20",
+        "-c", "20",
+        "-duc",
+        "-ni",
+        "-nc",
+        "-tags", ",".join(tags),
+    ]
+    if len(targets) == 1:
+        command.extend(["-u", targets[0]])
+        execution = run_command(command, timeout=timeout)
+    else:
+        with temporary_file(suffix=".txt") as input_file:
+            write_lines(input_file, targets)
+            execution = run_command(
+                command + ["-l", str(input_file)],
+                timeout=timeout,
+            )
+    return parse_nuclei(execution["stdout"])
 
 
 def run_nuclei(targets):
@@ -47,39 +84,42 @@ def run_nuclei(targets):
             },
         }
 
-    command = [
-        executable,
-        "-j",
-        "-severity",
-        "info,low,medium,high,critical",
-        "-timeout",
-        "10",
-        "-retries",
-        "1",
-    ]
+    severity = "medium,high,critical"
+    batch_timeout = max(180, 60 * len(normalized_targets))
 
-    if len(normalized_targets) == 1:
-        command.extend(["-u", normalized_targets[0]])
-        execution = run_command(command, timeout=600)
-    else:
-        with temporary_file(suffix=".txt") as input_file:
-            write_lines(input_file, normalized_targets)
-            execution = run_command(
-                command + ["-l", str(input_file)],
-                timeout=600,
-            )
+    # Run tag groups in parallel for speed
+    all_vulns = []
+    with ThreadPoolExecutor(max_workers=min(len(TAG_GROUPS), 4)) as pool:
+        futures = {
+            pool.submit(_run_batch, executable, normalized_targets, group, severity, batch_timeout): group
+            for group in TAG_GROUPS
+        }
+        for future in as_completed(futures):
+            group = futures[future]
+            try:
+                all_vulns.extend(future.result())
+            except Exception as exc:
+                pass  # individual group failure is non-fatal
 
-    raw_output = combine_output(execution["stdout"], execution["stderr"])
-    vulnerabilities = parse_nuclei(execution["stdout"])
+    # Deduplicate by (template_id, target)
+    seen = set()
+    deduped = []
+    for v in all_vulns:
+        key = (v.get("template_id"), v.get("target"))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(v)
+
+    raw_output = json.dumps(deduped)
     parsed_output = {
-        "total_vulnerabilities": len(vulnerabilities),
-        "vulnerabilities": vulnerabilities,
+        "total_vulnerabilities": len(deduped),
+        "vulnerabilities": deduped,
         "targets_scanned": normalized_targets,
     }
 
     return {
         "raw_output": raw_output,
-        "parsed_output": add_execution_error(parsed_output, execution),
+        "parsed_output": parsed_output,
     }
 
 

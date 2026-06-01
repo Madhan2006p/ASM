@@ -1,8 +1,6 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-<<<<<<< HEAD
-=======
 
 from authentication.permissions import (
     HasModulePermission,
@@ -11,7 +9,6 @@ from authentication.permissions import (
     user_has_module_permission,
 )
 
->>>>>>> latest
 from .models import Scan, SSLResult, MonitorSchedule, DetectionResult
 from .serializers import (
     ScanSerializer, SSLResultSerializer,
@@ -42,14 +39,6 @@ SCAN_TASK_MAP = {
     'WAPITI': run_wapiti,
 }
 
-<<<<<<< HEAD
-class ScanViewSet(viewsets.ModelViewSet):
-    serializer_class = ScanSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return Scan.objects.select_related('target').filter(target__user=self.request.user)
-=======
 
 
 class ScanViewSet(viewsets.ModelViewSet):
@@ -63,7 +52,6 @@ class ScanViewSet(viewsets.ModelViewSet):
             target__user=self.request.user,
             target__user__memberships__organization__org_id=org_id,
         )
->>>>>>> latest
 
     def perform_create(self, serializer):
         scan = serializer.save()
@@ -74,27 +62,17 @@ class ScanViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def history(self, request):
         """
-<<<<<<< HEAD
-        Returns all scans for the authenticated user with aggregated result counts:
-        vulnerability count, subdomain count, endpoint count, technology count, port count.
-        """
-=======
         Returns all scans for the authenticated user with aggregated result counts.
         """
         if not user_has_module_permission(request.user, "scan_history"):
             return Response({"error": "Permission denied"}, status=403)
 
->>>>>>> latest
         scans = self.get_queryset().order_by('-started_at')
 
         from vulnerabilities.models import Vulnerability
 
         data = []
         for scan in scans:
-<<<<<<< HEAD
-            # Count vulnerabilities linked to this scan's target and tool
-=======
->>>>>>> latest
             vuln_count = Vulnerability.objects.filter(
                 target=scan.target,
                 source_tool__icontains=scan.scan_type,
@@ -117,12 +95,9 @@ class ScanViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def detect(self, request):
-<<<<<<< HEAD
-=======
         if not user_has_module_permission(request.user, "trigger_scan"):
             return Response({"error": "Permission denied"}, status=403)
 
->>>>>>> latest
         target_id = request.data.get('target')
         scan_types = request.data.get('scan_types', ['HTTPX_TECH', 'DIRSEARCH', 'NUCLEI', 'SSL_CHECK'])
         if not target_id:
@@ -146,10 +121,6 @@ class ScanViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def detection_summary(self, request):
-<<<<<<< HEAD
-        from targets.models import Target
-        targets = Target.objects.filter(user=request.user).prefetch_related(
-=======
         if not user_has_module_permission(request.user, "dashboard"):
             return Response({"error": "Permission denied"}, status=403)
 
@@ -159,7 +130,6 @@ class ScanViewSet(viewsets.ModelViewSet):
             user=request.user,
             user__memberships__organization__org_id=org_id,
         ).prefetch_related(
->>>>>>> latest
             'scans', 'vulnerabilities', 'technologies', 'ssl_results'
         )
         summary = []
@@ -178,21 +148,6 @@ class ScanViewSet(viewsets.ModelViewSet):
             })
         return Response(summary)
 
-<<<<<<< HEAD
-class SSLResultViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = SSLResultSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return SSLResult.objects.select_related('scan', 'target').filter(target__user=self.request.user)
-
-class MonitorScheduleViewSet(viewsets.ModelViewSet):
-    serializer_class = MonitorScheduleSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return MonitorSchedule.objects.select_related('target').filter(target__user=self.request.user)
-=======
 
 class SSLResultViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SSLResultSerializer
@@ -217,7 +172,6 @@ class MonitorScheduleViewSet(viewsets.ModelViewSet):
             target__user=self.request.user,
             target__user__memberships__organization__org_id=org_id,
         )
->>>>>>> latest
 
     def perform_create(self, serializer):
         schedule = serializer.save()
@@ -239,14 +193,6 @@ class MonitorScheduleViewSet(viewsets.ModelViewSet):
             args=f'[{schedule.id}]',
         )
 
-<<<<<<< HEAD
-class DetectionResultViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = DetectionResultSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return DetectionResult.objects.select_related('target').filter(target__user=self.request.user)
-=======
 
 class DetectionResultViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DetectionResultSerializer
@@ -258,7 +204,6 @@ class DetectionResultViewSet(viewsets.ReadOnlyModelViewSet):
             target__user=self.request.user,
             target__user__memberships__organization__org_id=org_id,
         )
->>>>>>> latest
 
     @action(detail=True, methods=['post'])
     def acknowledge(self, request, pk=None):

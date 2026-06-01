@@ -1,15 +1,9 @@
 from django.db import models
-<<<<<<< HEAD
-
-
-class ReconScan(models.Model):
-=======
 from authentication.models import Organization
 
 
 class ReconScan(models.Model):
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="recon_scans", null=True, blank=True)
->>>>>>> latest
     target = models.CharField(max_length=255)
     status = models.CharField(max_length=50, default="pending")
     progress = models.IntegerField(default=0)
@@ -31,10 +25,7 @@ class ToolOutput(models.Model):
 
 
 class DiscoveredDomain(models.Model):
-<<<<<<< HEAD
-=======
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="discovered_domains", null=True, blank=True)
->>>>>>> latest
     scan = models.ForeignKey(ReconScan, on_delete=models.CASCADE, related_name="domains")
     root_domain = models.CharField(max_length=255)
     subdomain = models.CharField(max_length=255)
@@ -46,10 +37,7 @@ class DiscoveredDomain(models.Model):
 
 
 class ReconEndpoint(models.Model):
-<<<<<<< HEAD
-=======
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="recon_endpoints", null=True, blank=True)
->>>>>>> latest
     scan = models.ForeignKey(ReconScan, on_delete=models.CASCADE, related_name="endpoints")
     url = models.TextField()
     source = models.CharField(max_length=100)

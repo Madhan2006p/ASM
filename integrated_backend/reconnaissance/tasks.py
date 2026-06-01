@@ -3,12 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .models import ReconScan, ToolOutput, DiscoveredDomain, ReconEndpoint
 from .services.api_inspector import detect_api_technology, test_http_methods, collect_api_urls
-<<<<<<< HEAD
-from .services.nmap_scanner import run_nmap
-from .services.nuclei_scanner import run_nuclei
-from .services.subfinder_scanner import run_subfinder
-from .services.gau_scanner import run_gau
-=======
 from .services.assetfinder_scanner import run_assetfinder
 from .services.dirsearch_scanner import run_dirsearch
 from .services.findomain_scanner import run_findomain
@@ -23,71 +17,10 @@ from .services.wapiti_scanner import run_wapiti
 from .services.waybackurls_scanner import run_waybackurls
 from .services.whatweb_scanner import run_whatweb_scan
 from .services.email_security_scanner import run_email_security_scan
->>>>>>> latest
 
 
 @shared_task(bind=True)
 def run_scheduled_recon_scan(self, target="kongu.ac.in"):
-<<<<<<< HEAD
-    scan = ReconScan.objects.create(target=target, status="running", progress=0)
-
-    executor = ThreadPoolExecutor(max_workers=4)
-
-    nmap_future = executor.submit(run_nmap, target)
-    nuclei_future = executor.submit(run_nuclei, target)
-    subfinder_future = executor.submit(run_subfinder, target)
-    gau_future = executor.submit(run_gau, target)
-
-    try:
-        nmap_result = nmap_future.result()
-    except Exception:
-        nmap_result = {"raw_output": "", "parsed_output": {"total_ports": 0, "ports": []}}
-
-    try:
-        nuclei_result = nuclei_future.result()
-    except Exception:
-        nuclei_result = {"raw_output": "", "parsed_output": {"total_vulnerabilities": 0, "vulnerabilities": []}}
-
-    try:
-        subfinder_result = subfinder_future.result()
-    except Exception:
-        subfinder_result = {"raw_output": "", "parsed_output": {"total_subdomains": 0, "subdomains": []}}
-
-    try:
-        gau_result = gau_future.result()
-    except Exception:
-        gau_result = {"raw_output": "", "parsed_output": {"total_endpoints": 0, "endpoints": []}}
-
-    executor.shutdown(wait=True)
-
-    ToolOutput.objects.create(scan=scan, tool_name="nmap", raw_output=nmap_result["raw_output"], parsed_output=nmap_result["parsed_output"])
-    ToolOutput.objects.create(scan=scan, tool_name="nuclei", raw_output=nuclei_result["raw_output"], parsed_output=nuclei_result["parsed_output"])
-    ToolOutput.objects.create(scan=scan, tool_name="subfinder", raw_output=subfinder_result["raw_output"], parsed_output=subfinder_result["parsed_output"])
-    ToolOutput.objects.create(scan=scan, tool_name="gau", raw_output=gau_result["raw_output"], parsed_output=gau_result["parsed_output"])
-
-    for item in subfinder_result["parsed_output"].get("subdomains", []):
-        DiscoveredDomain.objects.get_or_create(
-            scan=scan,
-            subdomain=item["subdomain"],
-            defaults={"root_domain": target, "source": "scheduled-subfinder"},
-        )
-
-    for item in gau_result["parsed_output"].get("endpoints", []):
-        ReconEndpoint.objects.get_or_create(
-            scan=scan,
-            url=item["url"],
-            defaults={"source": "scheduled-gau", "method": "GET", "has_params": ("?" in item["url"])},
-        )
-
-    for item in nuclei_result["parsed_output"].get("vulnerabilities", []):
-        url = item.get("target")
-        if url and url.startswith("http"):
-            ReconEndpoint.objects.get_or_create(
-                scan=scan,
-                url=url,
-                defaults={"source": "scheduled-nuclei", "method": "GET", "has_params": ("?" in url)},
-            )
-=======
     scan = ReconScan.objects.create(target=target, status="running", progress=0, org_id=None)
 
     executor = ThreadPoolExecutor(max_workers=10)
@@ -196,7 +129,6 @@ def run_scheduled_recon_scan(self, target="kongu.ac.in"):
                     scan=scan, url=url,
                     defaults={"source": "scheduled-nuclei", "method": "GET", "has_params": ("?" in url)},
                 )
->>>>>>> latest
 
     scan.progress = 100
     scan.status = "completed"

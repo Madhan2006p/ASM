@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-from unittest.mock import patch
-=======
 import json
 from unittest.mock import ANY, MagicMock, patch
->>>>>>> latest
 
 from rest_framework.test import APITestCase
 
@@ -133,8 +129,6 @@ class NmapParserTests(APITestCase):
         self.assertEqual(parsed["ports"][0]["scripts"][0]["id"], "smtp-open-relay")
 
 
-<<<<<<< HEAD
-=======
 class WaybackurlsScannerTests(APITestCase):
     """Tests for the waybackurls scanner module."""
 
@@ -620,7 +614,6 @@ class WhatwebScannerTests(APITestCase):
             self.assertEqual(results, [])
 
 
->>>>>>> latest
 class EmailSecurityParserTests(APITestCase):
     def test_parse_smtp_starttls_extracts_certificate_metadata(self):
         parsed = parse_smtp_starttls(

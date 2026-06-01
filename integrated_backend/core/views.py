@@ -34,8 +34,6 @@ def api_root(request):
         "version": "1.0",
         "endpoints": endpoints,
     })
-<<<<<<< HEAD
-=======
 
 
 # Error handlers
@@ -53,4 +51,3 @@ def handler404(request, exception=None):
 
 def handler500(request):
     return JsonResponse({"error": "Server error"}, status=500)
->>>>>>> latest

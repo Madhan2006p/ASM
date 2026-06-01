@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from django.db import models
-
-# Create your models here.
-=======
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import models
@@ -89,4 +84,3 @@ class UserDomain(models.Model):
 
     def __str__(self):
         return f"{self.domain} ({self.user.username})"
->>>>>>> latest

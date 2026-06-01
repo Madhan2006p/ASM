@@ -4,9 +4,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-<<<<<<< HEAD
-from .serializers import UserSerializer
-=======
 from .models import Organization, OrganizationMembership, UserDomain, UserProfile
 from .permissions import IsOrgAdmin
 from .serializers import (
@@ -14,7 +11,6 @@ from .serializers import (
     OrganizationSerializer,
     UserSerializer,
 )
->>>>>>> latest
 
 User = get_user_model()
 
@@ -28,8 +24,6 @@ def get_tokens_for_user(user):
 
 
 def get_user_data(user):
-<<<<<<< HEAD
-=======
     membership = (
         user.memberships.select_related("organization").first()
         if hasattr(user, "memberships") and user.pk
@@ -58,23 +52,17 @@ def get_user_data(user):
         UserDomain.objects.filter(user=user).values_list("domain", flat=True)
     )
 
->>>>>>> latest
     return {
         "id": user.id,
         "name": user.get_full_name() or user.username,
         "email": user.email,
         "username": user.username,
-<<<<<<< HEAD
-        "organization_id": "1",
-        "organization": "Default Org",
-=======
         "phone_number": profile.phone_number if profile else "",
         "organization_id": org_id,
         "organization": org_name,
         "role": role,
         "features": features,
         "assigned_domains": assigned_domains,
->>>>>>> latest
     }
 
 
@@ -154,8 +142,6 @@ class CheckAuthView(APIView):
 
     def get(self, request):
         return Response({"authenticated": True, "user": get_user_data(request.user)})
-<<<<<<< HEAD
-=======
 
 
 # ─── Organization Management Views ────────────────────────────────────────────
@@ -426,4 +412,3 @@ class ListOrganizationUsersView(APIView):
             })
 
         return Response(data)
->>>>>>> latest

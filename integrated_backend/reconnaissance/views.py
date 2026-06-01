@@ -1,22 +1,16 @@
 from concurrent.futures import ThreadPoolExecutor
 
-<<<<<<< HEAD
-=======
 from rest_framework import permissions
->>>>>>> latest
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-<<<<<<< HEAD
-=======
 from authentication.permissions import (
     HasModulePermission,
     IsAuthenticatedAndOrgMember,
     get_user_org_id,
 )
 
->>>>>>> latest
 from .models import DiscoveredDomain, ReconEndpoint, ReconScan, ToolOutput
 from .serializers import (
     DiscoveredDomainSerializer,
@@ -31,10 +25,7 @@ from .services.api_inspector import (
 )
 from .services.assetfinder_scanner import run_assetfinder
 from .services.command_utils import dedupe_preserve_order, extract_hostnames, normalize_target
-<<<<<<< HEAD
-=======
 from .services.dirsearch_scanner import run_dirsearch
->>>>>>> latest
 from .services.dns_scanner import query_dns
 from .services.email_security_scanner import run_email_security_scan
 from .services.findomain_scanner import run_findomain
@@ -44,11 +35,6 @@ from .services.naabu_scanner import run_naabu
 from .services.nmap_scanner import run_nmap
 from .services.nuclei_scanner import run_nuclei
 from .services.subfinder_scanner import run_subfinder
-<<<<<<< HEAD
-
-
-class RunScanView(APIView):
-=======
 from .services.wappalyzer_scanner import run_wappalyzer
 from .services.wapiti_scanner import run_wapiti
 from .services.waybackurls_scanner import run_waybackurls
@@ -59,7 +45,6 @@ class RunScanView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         submitted_target = request.data.get("target")
         target = normalize_target(submitted_target)
@@ -67,16 +52,10 @@ class RunScanView(APIView):
         if not target:
             return Response({"error": "target is required"}, status=400)
 
-<<<<<<< HEAD
-        scan = ReconScan.objects.create(target=target, status="running", progress=5)
-
-        with ThreadPoolExecutor(max_workers=6) as executor:
-=======
         org_id = get_user_org_id(request)
         scan = ReconScan.objects.create(org_id=org_id, target=target, status="running", progress=5)
 
         with ThreadPoolExecutor(max_workers=8) as executor:
->>>>>>> latest
             discovery_futures = {
                 "subfinder": executor.submit(run_subfinder, target),
                 "assetfinder": executor.submit(run_assetfinder, target),
@@ -84,13 +63,10 @@ class RunScanView(APIView):
                 "gau": executor.submit(run_gau, target),
                 "naabu": executor.submit(run_naabu, target),
                 "email_security": executor.submit(run_email_security_scan, target),
-<<<<<<< HEAD
-=======
                 "waybackurls": executor.submit(run_waybackurls, target),
                 "wappalyzer": executor.submit(run_wappalyzer, target),
                 "whatweb": executor.submit(run_whatweb_scan, target),
                 "dig": executor.submit(query_dns, target),
->>>>>>> latest
             }
 
             discovery_results = {
@@ -122,16 +98,6 @@ class RunScanView(APIView):
         nmap_targets = extract_hostnames(live_urls) or [target]
         nuclei_targets = live_urls or [target]
 
-<<<<<<< HEAD
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            nmap_future = executor.submit(run_nmap, nmap_targets)
-            nuclei_future = executor.submit(run_nuclei, nuclei_targets)
-
-            nmap_result = get_future_result("nmap", nmap_future, target)
-            nuclei_result = get_future_result("nuclei", nuclei_future, target)
-
-        scan.progress = 80
-=======
         with ThreadPoolExecutor(max_workers=4) as executor:
             nmap_future = executor.submit(run_nmap, nmap_targets)
             nuclei_future = executor.submit(run_nuclei, nuclei_targets)
@@ -144,7 +110,6 @@ class RunScanView(APIView):
             dirsearch_result = get_future_result("dirsearch", dirsearch_future, target)
 
         scan.progress = 85
->>>>>>> latest
         scan.save(update_fields=["progress"])
 
         tool_results = {
@@ -160,8 +125,6 @@ class RunScanView(APIView):
                 "raw_output": "",
                 "parsed_output": discovery_results["email_security"],
             },
-<<<<<<< HEAD
-=======
             "waybackurls": discovery_results["waybackurls"],
             "wappalyzer": discovery_results["wappalyzer"],
             "whatweb": discovery_results["whatweb"],
@@ -171,7 +134,6 @@ class RunScanView(APIView):
                 "raw_output": "",
                 "parsed_output": discovery_results["dig"],
             },
->>>>>>> latest
         }
 
         persist_tool_outputs(scan, tool_results)
@@ -197,15 +159,10 @@ class RunScanView(APIView):
                 "vulnerability_scan": {
                     "nmap_targets": nmap_result["parsed_output"].get("targets_scanned", []),
                     "nuclei_targets": nuclei_result["parsed_output"].get("targets_scanned", []),
-<<<<<<< HEAD
-                },
-                "email_security": discovery_results["email_security"],
-=======
                     "wapiti_targets": wapiti_result["parsed_output"].get("targets_scanned", []),
                 },
                 "email_security": discovery_results["email_security"],
                 "dig": discovery_results["dig"],
->>>>>>> latest
                 "subfinder": tool_results["subfinder"]["parsed_output"],
                 "assetfinder": tool_results["assetfinder"]["parsed_output"],
                 "findomain": tool_results["findomain"]["parsed_output"],
@@ -214,25 +171,19 @@ class RunScanView(APIView):
                 "httpx": tool_results["httpx"]["parsed_output"],
                 "nmap": tool_results["nmap"]["parsed_output"],
                 "nuclei": tool_results["nuclei"]["parsed_output"],
-<<<<<<< HEAD
-=======
                 "waybackurls": tool_results["waybackurls"]["parsed_output"],
                 "wappalyzer": tool_results["wappalyzer"]["parsed_output"],
                 "whatweb": tool_results["whatweb"]["parsed_output"],
                 "wapiti": tool_results["wapiti"]["parsed_output"],
                 "dirsearch": tool_results["dirsearch"]["parsed_output"],
->>>>>>> latest
             }
         )
 
 
 class DNSQueryView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         domain = normalize_target(request.data.get("domain"))
 
@@ -243,12 +194,9 @@ class DNSQueryView(APIView):
 
 
 class EmailSecurityView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         domain = normalize_target(request.data.get("domain"))
 
@@ -260,18 +208,12 @@ class EmailSecurityView(APIView):
 
 class ReconScanListView(ListAPIView):
     serializer_class = ReconScanSerializer
-<<<<<<< HEAD
-
-    def get_queryset(self):
-        queryset = ReconScan.objects.all().order_by("-created_at")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
     def get_queryset(self):
         org_id = get_user_org_id(self.request)
         queryset = ReconScan.objects.filter(org_id=org_id).order_by("-created_at")
->>>>>>> latest
         target = normalize_target(self.request.query_params.get("target"))
 
         if target:
@@ -282,18 +224,12 @@ class ReconScanListView(ListAPIView):
 
 class ToolOutputListView(ListAPIView):
     serializer_class = ToolOutputSerializer
-<<<<<<< HEAD
-
-    def get_queryset(self):
-        queryset = ToolOutput.objects.all().order_by("-created_at")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
     def get_queryset(self):
         org_id = get_user_org_id(self.request)
         queryset = ToolOutput.objects.filter(scan__org_id=org_id).order_by("-created_at")
->>>>>>> latest
         scan_id = self.request.query_params.get("scan_id")
 
         if scan_id:
@@ -304,18 +240,12 @@ class ToolOutputListView(ListAPIView):
 
 class DiscoveredDomainListView(ListAPIView):
     serializer_class = DiscoveredDomainSerializer
-<<<<<<< HEAD
-
-    def get_queryset(self):
-        queryset = DiscoveredDomain.objects.all().order_by("-created_at")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "subdomains"
 
     def get_queryset(self):
         org_id = get_user_org_id(self.request)
         queryset = DiscoveredDomain.objects.filter(org_id=org_id).order_by("-created_at")
->>>>>>> latest
         scan_id = self.request.query_params.get("scan_id")
 
         if scan_id:
@@ -326,18 +256,12 @@ class DiscoveredDomainListView(ListAPIView):
 
 class ReconEndpointListView(ListAPIView):
     serializer_class = ReconEndpointSerializer
-<<<<<<< HEAD
-
-    def get_queryset(self):
-        queryset = ReconEndpoint.objects.all().order_by("-created_at")
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "endpoints"
 
     def get_queryset(self):
         org_id = get_user_org_id(self.request)
         queryset = ReconEndpoint.objects.filter(org_id=org_id).order_by("-created_at")
->>>>>>> latest
         scan_id = self.request.query_params.get("scan_id")
 
         if scan_id:
@@ -347,12 +271,9 @@ class ReconEndpointListView(ListAPIView):
 
 
 class APIInspectView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         target = normalize_target(request.data.get("target"))
         if not target:
@@ -361,12 +282,9 @@ class APIInspectView(APIView):
 
 
 class MethodScanView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         target = request.data.get("target")
         if not target:
@@ -377,12 +295,9 @@ class MethodScanView(APIView):
 
 
 class CollectApiUrlsView(APIView):
-<<<<<<< HEAD
-=======
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember, HasModulePermission]
     required_module = "reconnaissance"
 
->>>>>>> latest
     def post(self, request):
         target = normalize_target(request.data.get("target"))
         if not target:
@@ -472,8 +387,6 @@ def get_future_result(name, future, target):
                 },
             }
 
-<<<<<<< HEAD
-=======
         if name in ("waybackurls",):
             return {
                 "raw_output": "",
@@ -522,7 +435,6 @@ def get_future_result(name, future, target):
                 "error": f"dig/DNS query failed: {exc}",
             }
 
->>>>>>> latest
         return {
             "raw_output": "",
             "parsed_output": {
@@ -566,11 +478,7 @@ def persist_domains(scan, target, tool_results):
             _, created = DiscoveredDomain.objects.get_or_create(
                 scan=scan,
                 subdomain=subdomain,
-<<<<<<< HEAD
-                defaults={"root_domain": target, "source": source},
-=======
                 defaults={"org_id": scan.org_id, "root_domain": target, "source": source},
->>>>>>> latest
             )
             if created:
                 new_domains.append(subdomain)
@@ -587,11 +495,7 @@ def persist_endpoints(scan, tool_results):
             scan=scan,
             url=url,
             defaults={
-<<<<<<< HEAD
-                "source": "httpx", "method": "GET",
-=======
                 "org_id": scan.org_id, "source": "httpx", "method": "GET",
->>>>>>> latest
                 "status_code": item.get("status_code"),
                 "has_params": ("?" in url),
             },
@@ -605,11 +509,7 @@ def persist_endpoints(scan, tool_results):
             scan=scan,
             url=url,
             defaults={
-<<<<<<< HEAD
-                "source": "gau", "method": "GET",
-=======
                 "org_id": scan.org_id, "source": "gau", "method": "GET",
->>>>>>> latest
                 "has_params": ("?" in url),
             },
         )
@@ -622,11 +522,7 @@ def persist_endpoints(scan, tool_results):
             scan=scan,
             url=url,
             defaults={
-<<<<<<< HEAD
-                "source": "nuclei", "method": "GET",
-=======
                 "org_id": scan.org_id, "source": "nuclei", "method": "GET",
->>>>>>> latest
                 "has_params": ("?" in url),
             },
         )
