@@ -1,5 +1,5 @@
 import axios from "axios";
-import { API_BASE, ATTACK_SURFACE_URL, SCANS_URL, TOOLS_HEALTH_URL, CLEAR_DB_URL } from "./apiConfig";
+import { API_BASE, ATTACK_SURFACE_URL, SCANS_URL, TOOLS_HEALTH_URL, CLEAR_DB_URL, FARADAY_PIPELINE_URL } from "./apiConfig";
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -143,6 +143,23 @@ export const checkAuth = async () => {
   }
 };
 
+export const fetchFaradayFindings = async () => {
+  const response = await api.get(`${ATTACK_SURFACE_URL}/faraday-findings/`);
+  return response.data;
+};
+
+export const fetchFaradaySummary = async () => {
+  const response = await api.get(`${ATTACK_SURFACE_URL}/faraday-summary/`);
+  return response.data;
+};
+
+export const sendVulnerabilitiesToFaraday = async (scanId) => {
+  const response = await api.post(`${ATTACK_SURFACE_URL}/vulnerabilities/send-to-faraday/`, {
+    scan_id: scanId,
+  });
+  return response.data;
+};
+
 const buildAttackSurfaceUrl = (endpoint, scanId = null) => {
   const params = new URLSearchParams();
   if (scanId) params.set("scan", String(scanId));
@@ -253,6 +270,106 @@ export const clearDatabase = async () => {
   } catch (error) {
     throw error.response?.data || { message: "Failed to clear database" };
   }
+};
+
+
+// ─── Surface Web Monitoring API ───────────────────────────────────────────────
+import { SURFACE_MONITORING_URL } from "./apiConfig";
+
+export const surfaceMonitoringApi = {
+  // Configs
+  getConfigs: async () => {
+    const response = await api.get(`${SURFACE_MONITORING_URL}/configs/`);
+    return response.data;
+  },
+  createConfig: async (data) => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/configs/`, data);
+    return response.data;
+  },
+  updateConfig: async (id, data) => {
+    const response = await api.patch(`${SURFACE_MONITORING_URL}/configs/${id}/`, data);
+    return response.data;
+  },
+  deleteConfig: async (id) => {
+    const response = await api.delete(`${SURFACE_MONITORING_URL}/configs/${id}/`);
+    return response.data;
+  },
+  discoverRepos: async (configId) => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/configs/${configId}/discover/`);
+    return response.data;
+  },
+
+  // Repos
+  getRepos: async (configId = null) => {
+    const params = configId ? { config: configId } : {};
+    const response = await api.get(`${SURFACE_MONITORING_URL}/repos/`, { params });
+    return response.data;
+  },
+  scanRepo: async (repoId) => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/repos/${repoId}/scan/`);
+    return response.data;
+  },
+  scanAllRepos: async () => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/repos/scan_all/`);
+    return response.data;
+  },
+  getStats: async () => {
+    const response = await api.get(`${SURFACE_MONITORING_URL}/repos/stats/`);
+    return response.data;
+  },
+
+  // Scans
+  getScans: async (repoId = null) => {
+    const params = repoId ? { repo: repoId } : {};
+    const response = await api.get(`${SURFACE_MONITORING_URL}/scans/`, { params });
+    return response.data;
+  },
+  addRepo: async (fullName) => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/repos/add_repo/`, { full_name: fullName });
+    return response.data;
+  },
+  pollEvents: async (repoId) => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/repos/${repoId}/poll_events/`);
+    return response.data;
+  },
+
+  // Events
+  getEvents: async (repoId = null, type = null) => {
+    const params = {};
+    if (repoId) params.repo = repoId;
+    if (type) params.type = type;
+    const response = await api.get(`${SURFACE_MONITORING_URL}/events/`, { params });
+    return response.data;
+  },
+};
+
+export const featureApi = {
+  // List all available features
+  listFeatures: async () => {
+    const response = await api.get(`${API_BASE}/api/auth/features/`);
+    return response.data;
+  },
+  // Get a user's granted features
+  getUserFeatures: async (userId) => {
+    const response = await api.get(`${API_BASE}/api/auth/admin/users/${userId}/features/`);
+    return response.data;
+  },
+  // Give a feature to a user
+  giveFeature: async (userId, featureId) => {
+    const response = await api.post(`${API_BASE}/api/auth/admin/users/${userId}/features/`, {
+      action: "give",
+      feature_id: featureId,
+    });
+    return response.data;
+  },
+  // Take back a feature from a user
+  takeFeature: async (userId, featureId) => {
+    const response = await api.post(`${API_BASE}/api/auth/admin/users/${userId}/features/`, {
+      action: "take",
+      feature_id: featureId,
+    });
+    return response.data;
+  },
 };
 
 

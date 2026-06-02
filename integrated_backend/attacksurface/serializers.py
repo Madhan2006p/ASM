@@ -185,6 +185,7 @@ class AttackSurfaceScanSerializer(serializers.ModelSerializer):
             "ssl_done",
             "email_done",
             "directories_done",
+            "vuln_scan_phase",
             "vulnerability_count",
             "subdomain_count",
             "endpoint_count",

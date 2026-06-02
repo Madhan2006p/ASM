@@ -408,6 +408,86 @@ class ClearDatabaseView(APIView):
         return Response({"deleted": counts, "message": "Scan data cleared for organization"})
 
 
+class FaradayFindingsView(APIView):
+    """
+    Fetch findings from Faraday directly.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
+
+    def get(self, request):
+        from .faraday_import import fetch_faraday_findings
+        result = fetch_faraday_findings()
+        return Response(result)
+
+
+class FaradaySummaryView(APIView):
+    """
+    Fetch summary/counts from Faraday directly.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
+
+    def get(self, request):
+        from .faraday_import import fetch_faraday_summary
+        result = fetch_faraday_summary()
+        return Response(result)
+
+
+class SendVulnerabilitiesToFaradayView(APIView):
+    """
+    Collect vulnerabilities from a scan and send them directly to Faraday.
+    """
+    permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
+
+    def post(self, request):
+        from .faraday_import import import_vulnerabilities_to_faraday
+
+        scan_id = request.data.get("scan_id")
+        if not scan_id:
+            return Response({"error": "scan_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        org_id = get_user_org_id(request)
+
+        # Verify scan belongs to user's org
+        try:
+            scan_id_int = int(scan_id)
+            scan = AttackSurfaceScan.objects.filter(id=scan_id_int, org_id=org_id).first()
+            if not scan:
+                return Response({"error": "Scan not found"}, status=status.HTTP_404_NOT_FOUND)
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid scan_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Collect vulnerabilities
+        vulns = VulnerabilityResult.objects.filter(scan=scan, org_id=org_id)
+        if not vulns.exists():
+            return Response({"status": "skipped", "created": 0, "message": "No vulnerabilities found for this scan"})
+
+        # Format for Faraday
+        asm_vulns = []
+        for v in vulns:
+            asm_vulns.append({
+                "vulnerability_id": v.vulnerability_id or "",
+                "domain": v.domain or "",
+                "subdomain": v.subdomain or "",
+                "severity": v.severity or "info",
+                "cve": v.cve or "",
+                "cwe": v.cwe or "",
+                "finding": v.finding or "",
+                "template_id": v.template_id or "",
+                "source_tool": v.source_tool or "ASM",
+                "discovered_at": str(v.discovered_at) if v.discovered_at else "",
+            })
+
+        # Send to Faraday
+        result = import_vulnerabilities_to_faraday(asm_vulns)
+
+        return Response({
+            "status": result.get("status", "failed"),
+            "created": result.get("created", 0),
+            "total_vulnerabilities": len(asm_vulns),
+            "errors": result.get("errors", []),
+        })
+
+
 class ToolsHealthView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAuthenticatedAndOrgMember]
 

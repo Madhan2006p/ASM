@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Form, Spinner, Alert, Badge } from 'react-bootstrap';
 import { useNavigate, useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
-import { FiArrowLeft, FiDownload } from 'react-icons/fi';
+import { FiArrowLeft, FiDownload, FiActivity } from 'react-icons/fi';
 import LockedFeatureOverlay from '../components/LockedFeatureOverlay';
 import "../styles/DigitalFootprintsPage.css";
 import axios from 'axios';
 import fileSaver from 'file-saver';
 import ExcelJS from 'exceljs';
 import { cleanupLocalStorageDomains, sanitizeSubdomainStr } from '../utils/domainSanitizer';
-import { fetchAllPages } from '../utils/api';
+import { fetchAllPages, sendVulnerabilitiesToFaraday } from '../utils/api';
 import { useScan } from '../context/ScanContext';
 
 const saveAs = fileSaver.saveAs || fileSaver;
@@ -18,11 +18,20 @@ const getExcelJS = () => {
 };
 
 const VulnerabilitiesPage = () => {
-  const { refreshKey, scanState } = useScan();
+  const { refreshKey, scanState, addLog, setFaradayImporting, setFaradayResult } = useScan();
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [faradayLoading, setFaradayLoading] = useState(false);
+  const [faradayError, setFaradayError] = useState(null);
+  const [faradaySuccess, setFaradaySuccess] = useState(null);
   const [error, setError] = useState(null);
   const [vulnerabilities, setVulnerabilities] = useState([]);
+  const [prevVulnPhase, setPrevVulnPhase] = useState("pending");
+  const [showTransition, setShowTransition] = useState(false);
+
+  const vulnScanPhase = scanState.vulnScanPhase || "pending";
+  const isDeepScanning = vulnScanPhase === "basic";
+  const isTransitioning = showTransition;
   const navigate = useNavigate();
   const { orgId } = useParams();
   // Export to Excel function
@@ -77,6 +86,36 @@ const VulnerabilitiesPage = () => {
     }
   };
 
+  // Send vulnerabilities to Faraday
+  const handleSendToFaraday = async () => {
+    setFaradayLoading(true);
+    setFaradayError(null);
+    setFaradaySuccess(null);
+    setFaradayImporting(true);
+    addLog("[+] Sending vulnerabilities to Faraday...", "info");
+
+    try {
+      const activeScanId = scanState.scanId || localStorage.getItem("activeScanId");
+      if (!activeScanId) {
+        throw new Error("No active scan found");
+      }
+      const result = await sendVulnerabilitiesToFaraday(activeScanId);
+      const count = result.created || 0;
+      const total = result.total_vulnerabilities || 0;
+      setFaradaySuccess(`${count} of ${total} vulnerabilities sent to Faraday successfully!`);
+      setFaradayResult(count, null);
+      addLog(`[+] ${count} of ${total} vulnerabilities imported to Faraday successfully`, "success");
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.error || err?.message || 'Failed to send to Faraday';
+      setFaradayError(msg);
+      setFaradayResult(0, msg);
+      addLog(`[!] Faraday import failed: ${msg}`, "crit");
+    } finally {
+      setFaradayLoading(false);
+      setFaradayImporting(false);
+    }
+  };
+
   // Fetch vulnerabilities data
   const fetchVulnerabilities = async () => {
     try {
@@ -102,6 +141,21 @@ const VulnerabilitiesPage = () => {
       setLoading(false);
     }
   };
+
+  // Track phase transition to re-fetch when deep scan completes
+  useEffect(() => {
+    if (prevVulnPhase === "basic" && vulnScanPhase === "complete") {
+      // Deep scan finished — PythonScanner results were replaced, re-fetch
+      setShowTransition(true);
+      setLoading(true);
+      setTimeout(() => {
+        fetchVulnerabilities().finally(() => {
+          setShowTransition(false);
+        });
+      }, 600);
+    }
+    setPrevVulnPhase(vulnScanPhase);
+  }, [vulnScanPhase]);
 
   useEffect(() => {
     fetchVulnerabilities();
@@ -163,20 +217,103 @@ const getSeverityBadge = React.useCallback((severity) => {
             </Button>
             <h2 className="mb-0">Vulnerabilities</h2>
           </div>
-          <div>
-            <Button variant="outline-primary" className="me-2" onClick={() => {
-              setLoading(true);
-              setTimeout(() => {
-                fetchVulnerabilities();
-              }, 500);
-            }}>
+          <div className="d-flex align-items-center gap-2">
+            <Button
+              variant="outline-primary"
+              className="me-2"
+              onClick={() => {
+                setLoading(true);
+                setTimeout(() => {
+                  fetchVulnerabilities();
+                }, 500);
+              }}
+            >
               <i className="bi bi-arrow-clockwise"></i> Refresh
+            </Button>
+            <Button
+              variant="outline-warning"
+              onClick={handleSendToFaraday}
+              disabled={faradayLoading || vulnerabilities.length === 0}
+              className="d-flex align-items-center gap-2"
+            >
+              {faradayLoading ? (
+                <>
+                  <Spinner
+                    as="span"
+                    animation="border"
+                    size="sm"
+                    role="status"
+                    aria-hidden="true"
+                  />
+                  Sending to Faraday...
+                </>
+              ) : (
+                <>
+                  <FiActivity size={16} />
+                  Send to Faraday
+                </>
+              )}
             </Button>
             <Button variant="outline-secondary" onClick={exportToExcel} className="d-flex align-items-center gap-2">
               <FiDownload size={16} /> Export to Excel
             </Button>
           </div>
         </div>
+
+        {/* Faraday import status */}
+        {faradaySuccess && (
+          <Alert variant="success" dismissible onClose={() => setFaradaySuccess(null)} className="py-2">
+            <FiActivity size={16} className="me-2" />{faradaySuccess}
+          </Alert>
+        )}
+        {faradayError && (
+          <Alert variant="danger" dismissible onClose={() => setFaradayError(null)} className="py-2">
+            <FiActivity size={16} className="me-2" />{faradayError}
+          </Alert>
+        )}
+
+        {/* Deep scan in progress banner */}
+        {isDeepScanning && (
+          <Alert variant="info" className="py-3 mb-4 d-flex align-items-center" style={{
+            background: 'linear-gradient(90deg, rgba(56, 189, 248, 0.1), rgba(139, 92, 246, 0.08))',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            borderRadius: 12,
+          }}>
+            <div className="me-3">
+              <Spinner animation="grow" size="sm" variant="primary" className="me-1" />
+              <Spinner animation="grow" size="sm" variant="info" className="me-1" style={{ animationDelay: '0.2s' }} />
+              <Spinner animation="grow" size="sm" variant="secondary" style={{ animationDelay: '0.4s' }} />
+            </div>
+            <div>
+              <strong className="d-block" style={{ color: '#0ea5e9', fontSize: '0.95rem' }}>
+                Basic scan complete — Deep scan in progress
+              </strong>
+              <small style={{ color: '#94a3b8' }}>
+                Initial findings shown below are from the Python scanner (headers, config, exposed ports). 
+                Nuclei is now running a thorough CVE &amp; misconfiguration scan — results will replace these shortly.
+              </small>
+            </div>
+          </Alert>
+        )}
+
+        {/* Transition animation overlay */}
+        {isTransitioning && (
+          <Alert variant="warning" className="py-3 mb-4 d-flex align-items-center" style={{
+            background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.1), rgba(139, 92, 246, 0.08))',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: 12,
+          }}>
+            <Spinner animation="border" size="sm" variant="warning" className="me-3" />
+            <div>
+              <strong className="d-block" style={{ color: '#f59e0b', fontSize: '0.95rem' }}>
+                Deep scan complete — Loading Nuclei findings...
+              </strong>
+              <small style={{ color: '#94a3b8' }}>
+                The basic PythonScanner results are being replaced with comprehensive Nuclei findings.
+              </small>
+            </div>
+          </Alert>
+        )}
 
         <div className="card mb-4">
           <div className="card-body">
@@ -264,6 +401,46 @@ const getSeverityBadge = React.useCallback((severity) => {
             </tbody>
           </Table>
         </div>
+
+        {/* Deep scan loader at bottom */}
+        {isDeepScanning && (
+          <div className="d-flex flex-column align-items-center justify-content-center py-5" style={{
+            background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.02), rgba(56, 189, 248, 0.04))',
+            border: '1px dashed rgba(56, 189, 248, 0.3)',
+            borderRadius: 16,
+            marginTop: 16,
+          }}>
+            <div className="d-flex align-items-center gap-2 mb-3">
+              <div className="spinner-grow text-primary" role="status" style={{ width: '1.2rem', height: '1.2rem', animationDuration: '1.2s' }}>
+                <span className="visually-hidden">Loading...</span>
+              </div>
+              <div className="spinner-grow text-info" role="status" style={{ width: '1rem', height: '1rem', animationDuration: '1.2s', animationDelay: '0.3s' }}>
+                <span className="visually-hidden">Loading...</span>
+              </div>
+              <div className="spinner-grow text-secondary" role="status" style={{ width: '0.8rem', height: '0.8rem', animationDuration: '1.2s', animationDelay: '0.6s' }}>
+                <span className="visually-hidden">Loading...</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <strong style={{ color: '#0ea5e9', fontSize: '1.1rem' }}>Deep Scan in Progress</strong>
+              <p className="mb-0 mt-1" style={{ color: '#94a3b8', fontSize: '0.85rem', maxWidth: 400 }}>
+                Nuclei is running thousands of CVE and misconfiguration templates. 
+                These basic findings will be replaced with comprehensive results once complete.
+              </p>
+            </div>
+            <div className="mt-3 d-flex gap-3">
+              <span className="badge rounded-pill" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444', padding: '6px 14px' }}>
+                CVE Scan
+              </span>
+              <span className="badge rounded-pill" style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8B5CF6', padding: '6px 14px' }}>
+                Misconfigurations
+              </span>
+              <span className="badge rounded-pill" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#F59E0B', padding: '6px 14px' }}>
+                Exposures
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
     </LockedFeatureOverlay>

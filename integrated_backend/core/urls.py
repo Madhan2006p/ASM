@@ -33,6 +33,9 @@ urlpatterns = [
 
     # Attack Surface Management (frontend-facing endpoints)
     path('api/attacksurface/', include('attacksurface.urls')),
+
+    # Surface Web Monitoring (GitHub repo discovery & secret scanning)
+    path('api/surface-monitoring/', include('surface_monitoring.urls')),
 ]
 
 if settings.DEBUG:

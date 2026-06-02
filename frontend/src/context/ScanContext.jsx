@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from "react";
-import { triggerScan, getScanStatus, fetchAllPages } from "../utils/api";
+import { triggerScan, getScanStatus, fetchAllPages, sendVulnerabilitiesToFaraday } from "../utils/api";
 
 const ScanContext = createContext(null);
 
@@ -11,7 +11,14 @@ export const ScanProvider = ({ children }) => {
     phase: "",
     scanId: null,
     phasesDone: {},
+    vulnScanPhase: "pending",
     logs: [],
+  });
+  const [faradayStatus, setFaradayStatus] = useState({
+    isImporting: false,
+    lastImport: null,
+    importedCount: 0,
+    error: null,
   });
   const [refreshKey, setRefreshKey] = useState(0);
   const pollRef = useRef(null);
@@ -26,13 +33,13 @@ export const ScanProvider = ({ children }) => {
 
   const startScan = useCallback(async (target) => {
     setScanState(prev => ({
-      ...prev,
-      isScanning: true,
+      ...prev,                    isScanning: true,
       target,
       progress: 0,
       phase: "Initiating scan via backend...",
       scanId: null,
       phasesDone: {},
+      vulnScanPhase: "pending",
       logs: [{ text: `[+] Scan initiated for ${target}`, type: "sys", time: new Date().toLocaleTimeString() }],
     }));
     prevPhasesRef.current = {};
@@ -82,6 +89,7 @@ export const ScanProvider = ({ children }) => {
             ...prev,
             progress,
             phasesDone,
+            vulnScanPhase: status.vuln_scan_phase || "pending",
             phase: status.status === "completed" ? "Scan completed!" : `Progress: ${progress}%`,
           }));
 
@@ -89,8 +97,27 @@ export const ScanProvider = ({ children }) => {
             clearInterval(interval);
             pollRef.current = null;
             addLog("[+] Scan completed successfully!", "success");
-            setScanState(prev => ({ ...prev, progress: 100, phase: "Scan completed!", isScanning: false }));
+            setScanState(prev => ({ ...prev, progress: 100, phase: "Scan completed!", isScanning: false, vulnScanPhase: status.vuln_scan_phase || prev.vulnScanPhase }));
             setRefreshKey(k => k + 1);
+
+            // Auto-send vulnerabilities to Faraday
+            if (status.status === "completed" && phasesDone.vulnerabilities_done) {
+              setTimeout(async () => {
+                try {
+                  addLog("[+] Auto-sending vulnerabilities to Faraday...", "info");
+                  setFaradayImporting(true);
+                  const result = await sendVulnerabilitiesToFaraday(scanId);
+                  const count = result.created || 0;
+                  setFaradayResult(count, null);
+                  addLog(`[+] ${count} vulnerabilities auto-imported to Faraday`, "success");
+                } catch (err) {
+                  const msg = err?.response?.data?.detail || err?.message || "Auto-import failed";
+                  setFaradayResult(0, msg);
+                  addLog(`[!] Faraday auto-import: ${msg}`, "crit");
+                }
+              }, 1000);
+            }
+
             return true;
           }
         } catch {
@@ -125,6 +152,7 @@ export const ScanProvider = ({ children }) => {
       phase: "",
       scanId: null,
       phasesDone: {},
+      vulnScanPhase: "pending",
       logs: [],
     });
   }, []);
@@ -145,8 +173,21 @@ export const ScanProvider = ({ children }) => {
     }
   }, [scanState.scanId]);
 
+  const setFaradayImporting = useCallback((isImporting) => {
+    setFaradayStatus(prev => ({ ...prev, isImporting }));
+  }, []);
+
+  const setFaradayResult = useCallback((importedCount, error = null) => {
+    setFaradayStatus({
+      isImporting: false,
+      lastImport: new Date().toLocaleTimeString(),
+      importedCount,
+      error,
+    });
+  }, []);
+
   return (
-    <ScanContext.Provider value={{ scanState, startScan, stopScan, refreshPhaseData, addLog, refreshKey }}>
+    <ScanContext.Provider value={{ scanState, startScan, stopScan, refreshPhaseData, addLog, refreshKey, faradayStatus, setFaradayImporting, setFaradayResult }}>
       {children}
     </ScanContext.Provider>
   );

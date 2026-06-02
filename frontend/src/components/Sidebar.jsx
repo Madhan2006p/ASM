@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { logout } from '../utils/api';
-import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiMail, FiActivity, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown } from 'react-icons/fi';
+import { FiGrid, FiSearch, FiMonitor, FiRadio, FiFolder, FiTool, FiShield, FiLock, FiMail, FiActivity, FiShoppingCart, FiSettings, FiLogOut, FiChevronDown, FiGithub } from 'react-icons/fi';
 import '../styles/Sidebar.css';
 
 // Role-to-permission mapping matches backend
@@ -9,19 +9,19 @@ const ROLE_PERMISSIONS = {
   admin: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
     'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
-    'trigger_scan', 'manage_domains', 'marketplace', 'settings',
-    'reconnaissance', 'fuzzing', 'manage_users',
+    'trigger_scan', 'manage_domains', 'surface_web', 'marketplace', 'settings',
+    'reconnaissance', 'fuzzing', 'faraday_findings', 'manage_users',
   ],
   member: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
     'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
-    'trigger_scan', 'manage_domains', 'marketplace', 'settings',
-    'reconnaissance', 'fuzzing',
+    'trigger_scan', 'manage_domains', 'surface_web', 'marketplace', 'settings',
+    'reconnaissance', 'fuzzing', 'faraday_findings',
   ],
   viewer: [
     'dashboard', 'subdomains', 'endpoints', 'open_ports', 'directories',
     'technologies', 'vulnerabilities', 'ssl_certificates', 'email_security', 'scan_history',
-    'settings',
+    'surface_web', 'faraday_findings', 'settings',
   ],
 };
 
@@ -141,8 +141,10 @@ const Sidebar = () => {
         )}
 
         {renderFeatureLink('vulnerabilities', 'Vulnerabilities', <FiShield size={18} />, '/vulnerabilities')}
+        {renderFeatureLink('faraday_findings', 'Faraday Findings', <FiActivity size={18} />, '/faraday-findings')}
         {renderFeatureLink('ssl_certificates', 'SSL Certificate', <FiLock size={18} />, '/ssl-certificates')}
         {renderFeatureLink('email_security', 'Email Security', <FiMail size={18} />, '/email-security')}
+        {renderFeatureLink('surface_web', 'Surface Web', <FiGithub size={18} />, '/surface-web')}
 
         {hasPermission('marketplace') && (
           <li>

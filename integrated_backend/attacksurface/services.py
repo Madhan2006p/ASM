@@ -1655,7 +1655,7 @@ def run_full_scan(scan):
 
         mark_phase(scan, "ports_done", 55)
 
-        # ── Phase 5: Vulnerability scanning (tech-aware) ──────────────────────
+        # ── Phase 5a: Basic vulnerability scan (PythonScanner, no binary needed) ─
         scan.progress = 60
         scan.save(update_fields=["progress"])
         # Collect all detected technologies across hosts for targeted scanning
@@ -1666,13 +1666,53 @@ def run_full_scan(scan):
         logger.info("Phase 5: vulnerability scanning targets=%s techs=%s tags=%s",
                      live_urls[:5], sorted(all_techs), nuclei_tags)
         try:
+            # Phase 5a first: Run Python-based vulnerability scanner (fast, no binary)
+            python_vulns = run_python_vuln_scanner(target, httpx_results, port_results=nmap_results)
+        except Exception as e:
+            logger.exception("python scanner failed: %s", e)
+            python_vulns = []
+
+        # Save PythonScanner results immediately so frontend can show them
+        for pv in python_vulns:
+            matched_host = pv.get("subdomain") or target
+            VulnerabilityResult.objects.get_or_create(
+                scan=scan,
+                vulnerability_id=pv.get("vulnerability_id", ""),
+                subdomain=matched_host,
+                defaults={
+                    "domain": target,
+                    "severity": pv.get("severity", "info").upper(),
+                    "cve": pv.get("cve", "") or "-",
+                    "cwe": pv.get("cwe", "") or "-",
+                    "finding": pv.get("finding", "") or "-",
+                    "template_id": pv.get("template_id", ""),
+                    "source_tool": "PythonScanner",
+                    "org_id": org_id,
+                },
+            )
+
+        # Mark basic scan done — frontend will show PythonScanner results
+        scan.vulnerabilities_done = True
+        scan.vuln_scan_phase = "basic"
+        scan.progress = 65
+        scan.save(update_fields=["vulnerabilities_done", "vuln_scan_phase", "progress"])
+        logger.info("Phase 5a: saved %d PythonScanner findings, vuln_scan_phase=basic", len(python_vulns))
+
+        # ── Phase 5b: Deep vulnerability scan (Nuclei, takes longer) ────────────
+        logger.info("Phase 5b: Nuclei deep scan targets=%s techs=%s tags=%s",
+                     live_urls[:5], sorted(all_techs), nuclei_tags)
+        try:
             nuclei_results = run_nuclei(live_urls[:5], tech_tags=nuclei_tags)
         except Exception as e:
             logger.exception("nuclei phase failed: %s", e)
             nuclei_results = []
 
-        # Run Python-based vulnerability scanner (no external tools needed)
-        python_vulns = run_python_vuln_scanner(target, httpx_results, port_results=nmap_results)
+        # Run Wapiti scanner
+        wapiti_results = []
+        try:
+            wapiti_results = run_wapiti(live_urls[:3], max_attack_time=60)
+        except Exception as e:
+            logger.exception("wapiti phase failed: %s", e)
 
         # Run Wapiti scanner on live URLs
         wapiti_results = []
@@ -1681,7 +1721,13 @@ def run_full_scan(scan):
         except Exception as e:
             logger.exception("wapiti phase failed: %s", e)
 
-        all_vulns = list(nuclei_results) + python_vulns + wapiti_results
+        # Delete PythonScanner interim results — they were placeholders for the frontend
+        deleted_count, _ = VulnerabilityResult.objects.filter(
+            scan=scan, source_tool="PythonScanner"
+        ).delete()
+        logger.info("Phase 5b: deleted %d PythonScanner results", deleted_count)
+
+        all_vulns = list(nuclei_results) + wapiti_results
 
         # Cross-module deduplication: same (subdomain, vuln_id) kept once, highest severity wins
         deduped_vulns = deduplicate_vulnerabilities(all_vulns)
@@ -1689,7 +1735,7 @@ def run_full_scan(scan):
             logger.info("Vulnerability deduplication: %d → %d unique findings",
                          len(all_vulns), len(deduped_vulns))
 
-        # Save vulnerabilities
+        # Save vulnerabilities (Nuclei + Wapiti)
         for nv in deduped_vulns:
             target_url = nv.get("target", "")
             matched_host = nv.get("host") or nv.get("subdomain") or urlparse(target_url).hostname or target
@@ -1776,7 +1822,11 @@ def run_full_scan(scan):
                 vulnerabilities_count=count
             )
 
-        mark_phase(scan, "vulnerabilities_done", 75)
+        # Mark deep scan complete — frontend will replace PythonScanner results
+        scan.vuln_scan_phase = "complete"
+        scan.vulnerabilities_done = True
+        scan.progress = 75
+        scan.save(update_fields=["vuln_scan_phase", "vulnerabilities_done", "progress"])
 
         # ── Phase 6: SSL scanning ─────────────────────────────────────────────
         scan.progress = 80

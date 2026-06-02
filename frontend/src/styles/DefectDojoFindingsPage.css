@@ -1,0 +1,290 @@
+.dojo-page {
+  min-height: calc(100vh - 70px);
+  background: #f6f8fb;
+}
+
+.dojo-content {
+  margin-left: 250px;
+  padding: 28px;
+  color: #0f172a;
+}
+
+.dojo-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  padding: 28px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #111827 0%, #1e3a8a 52%, #7f1d1d 100%);
+  color: #fff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.24);
+}
+
+.dojo-eyebrow {
+  margin: 0 0 8px;
+  color: #bfdbfe;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dojo-hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 800;
+}
+
+.dojo-subtitle {
+  margin: 10px 0 0;
+  max-width: 680px;
+  color: #dbeafe;
+}
+
+.dojo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.upload-button,
+.refresh-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.upload-button {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.upload-button input {
+  display: none;
+}
+
+.refresh-button {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  gap: 14px;
+  margin: 22px 0;
+}
+
+.summary-card {
+  padding: 18px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.summary-card span {
+  display: block;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.summary-card.critical strong,
+.summary-card.level strong {
+  color: #dc2626;
+}
+
+.summary-card.high strong {
+  color: #ea580c;
+}
+
+.summary-card.medium strong {
+  color: #ca8a04;
+}
+
+.summary-card.low strong {
+  color: #16a34a;
+}
+
+.dojo-panel {
+  margin-top: 22px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.07);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.panel-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.filters input,
+.filters select {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-width: 180px;
+}
+
+.dojo-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.dojo-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+
+.dojo-table th,
+.dojo-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.92rem;
+}
+
+.dojo-table th {
+  color: #475569;
+  background: #f8fafc;
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.full-table td:nth-child(3) {
+  min-width: 260px;
+}
+
+.severity-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.severity-critical { background: #fee2e2; color: #991b1b; }
+.severity-high { background: #ffedd5; color: #9a3412; }
+.severity-medium { background: #fef3c7; color: #92400e; }
+.severity-low { background: #dcfce7; color: #166534; }
+.severity-info { background: #dbeafe; color: #1e40af; }
+
+.pagination-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px;
+}
+
+.pagination-row div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pagination-row button {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 12px;
+}
+
+.pagination-row button:disabled {
+  opacity: 0.45;
+}
+
+.dojo-alert {
+  margin-top: 16px;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 700;
+}
+
+.dojo-alert.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.dojo-alert.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.empty-cell {
+  color: #64748b;
+  text-align: center !important;
+}
+
+@media (max-width: 1100px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dojo-hero,
+  .panel-header,
+  .table-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 768px) {
+  .dojo-content {
+    margin-left: 0;
+    padding: 16px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .refresh-button {
+    width: 100%;
+  }
+}

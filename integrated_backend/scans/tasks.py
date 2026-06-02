@@ -164,6 +164,23 @@ def _run_nuclei_tag_group(target_url, tags, output_file):
     return output_file.exists()
 
 
+def _import_nuclei_result_to_faraday(output_file):
+    if not getattr(settings, 'FARADAY_AUTO_IMPORT_NUCLEI', True):
+        return None
+    output_path = Path(output_file)
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return None
+
+    pipeline_url = str(getattr(settings, 'FARADAY_PIPELINE_URL', 'http://127.0.0.1:8001')).rstrip('/')
+    response = requests.post(
+        f'{pipeline_url}/faraday/import-nuclei-file',
+        json={'file_path': str(output_path.resolve())},
+        timeout=180,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 @shared_task(bind=True)
 def run_nuclei_vuln_scan(self, scan_id):
     """
@@ -281,6 +298,12 @@ def run_nuclei_vuln_scan(self, scan_id):
 
         scan.status = 'COMPLETED'
         scan.result_file = str(output_file)
+        try:
+            faraday_result = _import_nuclei_result_to_faraday(output_file)
+            if faraday_result:
+                logger.info("Imported Nuclei scan %s results to Faraday: %s", scan_id, faraday_result)
+        except Exception as exc:
+            logger.warning("Faraday import failed for Nuclei scan %s: %s", scan_id, exc)
     except Exception as e:
         scan.status = 'FAILED'
         scan.result_file = str(e)

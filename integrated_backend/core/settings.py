@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'reconnaissance',
     'attacksurface',
     'assetDiscovery',
+    'surface_monitoring',
 ]
 
 MIDDLEWARE = [
@@ -231,6 +232,8 @@ GAU_PATH = resolve_absolute_tool_path('gau')
 WAYBACKURLS_PATH = resolve_absolute_tool_path('waybackurls')
 GRPCURL_PATH = resolve_absolute_tool_path('grpcurl')
 WAPITI_PATH = resolve_absolute_tool_path('wapiti')
+# Prefer explicit env var, fall back to PATH, then to user-local install
+GITLEAKS_PATH = resolve_absolute_tool_path('gitleaks', 'GITLEAKS_PATH')
 # Reconnaissance / subdomain discovery tools
 SUBFINDER_PATH = resolve_absolute_tool_path('subfinder', 'SUBFINDER_PATH')
 ASSETFINDER_PATH = resolve_absolute_tool_path('assetfinder', 'ASSETFINDER_PATH')
@@ -251,6 +254,15 @@ ALERT_EMAIL_PASSWORD = os.getenv('ALERT_EMAIL_PASSWORD', '')
 ALERT_EMAIL_FROM = os.getenv('ALERT_EMAIL_FROM', 'asmm@localhost')
 ALERT_EMAIL_TO = os.getenv('ALERT_EMAIL_TO', 'admin@localhost').split(',')
 ALERT_SEVERITY_THRESHOLD = 'HIGH'
+FARADAY_PIPELINE_URL = os.getenv('FARADAY_PIPELINE_URL', 'http://127.0.0.1:8001')
+FARADAY_AUTO_IMPORT_NUCLEI = os.getenv('FARADAY_AUTO_IMPORT_NUCLEI', 'True').lower() in ('true', '1', 'yes')
+
+# Direct Faraday connection settings (used for vulnerability import)
+FARADAY_URL = os.getenv('FARADAY_URL', 'http://localhost:5985')
+FARADAY_USERNAME = os.getenv('FARADAY_USERNAME', 'faraday')
+FARADAY_PASSWORD = os.getenv('FARADAY_PASSWORD', 'changeme')
+FARADAY_WORKSPACE = os.getenv('FARADAY_WORKSPACE', 'nuclei-asm')
+FARADAY_VERIFY_SSL = os.getenv('FARADAY_VERIFY_SSL', 'false').lower() in ('true', '1', 'yes')
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -269,4 +281,3 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-

@@ -96,6 +96,7 @@ MODULE_PERMISSIONS = {
     "reconnaissance": "Can access reconnaissance tools",
     "apk_scanner": "Can use APK scanner",
     "fuzzing": "Can use fuzzing tools",
+    "surface_web": "Can access Surface Web Monitoring",
 }
 
 # Role-to-permission mapping
@@ -122,6 +123,7 @@ ROLE_PERMISSIONS = {
         "reconnaissance",
         "apk_scanner",
         "fuzzing",
+        "surface_web",
     },
     "viewer": {
         "dashboard",
@@ -135,6 +137,7 @@ ROLE_PERMISSIONS = {
         "email_security",
         "scan_history",
         "settings",
+        "surface_web",
     },
 }
 
@@ -179,6 +182,7 @@ FEATURE_MODULE_MAP = {
     "7": "ssl_certificates",
     "8": "email_security",
     "9": "scan_history",
+    "10": "surface_web",
 }
 
 

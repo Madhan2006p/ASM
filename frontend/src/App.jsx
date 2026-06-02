@@ -17,6 +17,8 @@ import EmailSecurityPage from "./pages/EmailSecurityPage";
 import ScanDetailPage from "./pages/ScanDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import MarketplacePage from "./pages/MarketplacePage";
+import SurfaceWebPage from "./pages/SurfaceWebPage";
+import DefectDojoFindingsPage from "./pages/DefectDojoFindingsPage";
 import Header from "./components/Header";
 import { checkAuth } from "./utils/api";
 
@@ -25,17 +27,17 @@ const MODULE_ACCESS = {
   admin: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
     '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
-    '/scan-detail', '/marketplace', '/settings',
+    '/scan-detail', '/marketplace', '/settings', '/surface-web', '/faraday-findings',
   ],
   member: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
     '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
-    '/scan-detail', '/marketplace', '/settings',
+    '/scan-detail', '/marketplace', '/settings', '/surface-web', '/faraday-findings',
   ],
   viewer: [
     '/dashboard', '/subdomains', '/endpoints', '/open-ports', '/directories',
     '/technologies', '/vulnerabilities', '/ssl-certificates', '/email-security',
-    '/settings',
+    '/settings', '/surface-web', '/faraday-findings',
   ],
 };
 
@@ -185,6 +187,13 @@ function App() {
             <Route path="/marketplace" element={
               <ProtectedRoute><MarketplacePage /></ProtectedRoute>
             } />
+            <Route path="/surface-web" element={
+              <ProtectedRoute><SurfaceWebPage /></ProtectedRoute>
+            } />
+            <Route path="/faraday-findings" element={
+              <ProtectedRoute><DefectDojoFindingsPage /></ProtectedRoute>
+            } />
+            <Route path="/defectdojo-findings" element={<Navigate to="/faraday-findings" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

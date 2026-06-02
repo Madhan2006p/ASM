@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     AdminCreateUserView,
     CheckAuthView,
+    ListFeaturesView,
     ListOrganizationUsersView,
     LoginView,
     LogoutView,
@@ -11,6 +12,7 @@ from .views import (
     OrganizationMembersView,
     ProfileView,
     RegisterView,
+    UserFeatureManagementView,
 )
 
 urlpatterns = [
@@ -19,6 +21,9 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("profile/", ProfileView.as_view(), name="profile"),
     path("check-auth/", CheckAuthView.as_view(), name="check-auth"),
+    # Feature management
+    path("features/", ListFeaturesView.as_view(), name="list-features"),
+    path("admin/users/<int:user_id>/features/", UserFeatureManagementView.as_view(), name="user-features"),
     # Organization management
     path("organizations/", OrganizationListView.as_view(), name="org-list"),
     path("organizations/<str:org_id>/", OrganizationDetailView.as_view(), name="org-detail"),

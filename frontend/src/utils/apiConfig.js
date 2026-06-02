@@ -21,5 +21,7 @@ export const TRIGGER_SCAN_URL = `${API_HOST}/api/attacksurface/scan`;
 export const SCAN_STATUS_URL = `${API_HOST}/api/attacksurface/scan`;
 export const TOOLS_HEALTH_URL = `${API_HOST}/api/attacksurface/tools-health`;
 export const CLEAR_DB_URL = `${API_HOST}/api/attacksurface/clear-db`;
+export const SURFACE_MONITORING_URL = `${API_HOST}/api/surface-monitoring`;
+export const FARADAY_PIPELINE_URL = import.meta.env.VITE_FARADAY_PIPELINE_URL || '/faraday-pipeline';
 
 export default API_BASE;

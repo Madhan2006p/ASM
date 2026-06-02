@@ -290,6 +290,130 @@ class OrganizationMembersView(APIView):
         return Response({"message": "Member removed successfully"})
 
 
+# ─── Feature Management API ────────────────────────────────────────────────
+
+# All available features with their IDs, names, and module keys
+AVAILABLE_FEATURES = [
+    {"id": "1", "name": "Subdomains", "module": "subdomains"},
+    {"id": "2", "name": "Endpoints", "module": "endpoints"},
+    {"id": "3", "name": "Open Ports", "module": "open_ports"},
+    {"id": "4", "name": "Directories", "module": "directories"},
+    {"id": "5", "name": "Technologies", "module": "technologies"},
+    {"id": "6", "name": "Vulnerabilities", "module": "vulnerabilities"},
+    {"id": "7", "name": "SSL Certificates", "module": "ssl_certificates"},
+    {"id": "8", "name": "Email Security", "module": "email_security"},
+    {"id": "9", "name": "Scan History", "module": "scan_history"},
+    {"id": "10", "name": "Surface Web Monitoring", "module": "surface_web"},
+]
+
+
+class ListFeaturesView(APIView):
+    """
+    List all available features that can be given/taken from users.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response(AVAILABLE_FEATURES)
+
+
+class UserFeatureManagementView(APIView):
+    """
+    Manage features for a specific user (admin only).
+    - GET: List the user's granted features
+    - POST (give): Grant a feature to the user
+    - POST (take): Revoke a feature from the user
+    """
+    permission_classes = [permissions.IsAuthenticated, IsOrgAdmin]
+
+    def get(self, request, user_id):
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        # Ensure the target user is in the same org as the admin
+        if not request.user.is_superuser:
+            admin_membership = request.user.memberships.filter(
+                organization__memberships__user=target_user
+            ).first()
+            if not admin_membership:
+                return Response({"error": "User is not in your organization"}, status=403)
+
+        profile = getattr(target_user, "asm_profile", None)
+        if not profile:
+            profile = UserProfile.objects.get_or_create(user=target_user)[0]
+
+        granted_features = []
+        if profile.features:
+            feature_ids = [f.strip() for f in profile.features.split(",") if f.strip()]
+            for fid in feature_ids:
+                match = next((f for f in AVAILABLE_FEATURES if f["id"] == fid), None)
+                if match:
+                    granted_features.append(match)
+
+        return Response({
+            "user_id": target_user.id,
+            "username": target_user.username,
+            "email": target_user.email,
+            "granted_features": granted_features,
+            "feature_ids": profile.features or "",
+        })
+
+    def post(self, request, user_id):
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        # Ensure same org
+        if not request.user.is_superuser:
+            admin_membership = request.user.memberships.filter(
+                organization__memberships__user=target_user
+            ).first()
+            if not admin_membership:
+                return Response({"error": "User is not in your organization"}, status=403)
+
+        profile = getattr(target_user, "asm_profile", None)
+        if not profile:
+            profile = UserProfile.objects.get_or_create(user=target_user)[0]
+
+        action = request.data.get("action", "")
+        feature_id = request.data.get("feature_id", "")
+
+        if not feature_id:
+            return Response({"error": "feature_id is required"}, status=400)
+
+        # Validate feature_id
+        valid = next((f for f in AVAILABLE_FEATURES if f["id"] == feature_id), None)
+        if not valid:
+            return Response({"error": f"Invalid feature_id: {feature_id}. Must be 1-10."}, status=400)
+
+        # Parse current features
+        current_features = set()
+        if profile.features:
+            current_features = set(f.strip() for f in profile.features.split(",") if f.strip())
+
+        if action == "give":
+            current_features.add(feature_id)
+            message = f'Feature "{valid["name"]}" granted to {target_user.username}'
+        elif action == "take":
+            current_features.discard(feature_id)
+            message = f'Feature "{valid["name"]}" revoked from {target_user.username}'
+        else:
+            return Response({"error": "action must be 'give' or 'take'"}, status=400)
+
+        profile.features = ",".join(sorted(current_features, key=int))
+        profile.save(update_fields=["features"])
+
+        return Response({
+            "message": message,
+            "user_id": target_user.id,
+            "username": target_user.username,
+            "feature_ids": profile.features,
+        })
+
+
 # ─── Admin: Create User Accounts Directly ──────────────────────────────────
 
 class AdminCreateUserView(APIView):

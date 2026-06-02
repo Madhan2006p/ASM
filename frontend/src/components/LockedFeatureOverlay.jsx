@@ -13,6 +13,7 @@ const FEATURE_LABELS = {
   "7": "SSL Certificates",
   "8": "Email Security",
   "9": "Scan History",
+  "10": "Surface Web Monitoring",
 };
 
 const LockedFeatureOverlay = ({ featureId, children }) => {

@@ -60,7 +60,7 @@ class UserProfile(models.Model):
         help_text="Comma-separated feature IDs. E.g., 1,2,3\n"
         "1=Subdomains, 2=Endpoints, 3=Open Ports, 4=Directories, \n"
         "5=Technologies, 6=Vulnerabilities, 7=SSL Certificates, \n"
-        "8=Email Security, 9=Scan History",
+        "8=Email Security, 9=Scan History, 10=Surface Web Monitoring",
     )
 
     def __str__(self):

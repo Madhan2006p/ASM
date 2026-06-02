@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useScan } from "../context/ScanContext";
 
 const FloatingTerminal = () => {
-  const { scanState, stopScan } = useScan();
+  const { scanState, stopScan, faradayStatus } = useScan();
   const [minimized, setMinimized] = useState(false);
   const logEndRef = useRef(null);
 
@@ -12,7 +12,10 @@ const FloatingTerminal = () => {
     }
   }, [scanState.logs.length]);
 
-  if (!scanState.isScanning && scanState.logs.length === 0) return null;
+  const hasFaradayActivity = faradayStatus.isImporting || faradayStatus.lastImport;
+  const showTerminal = scanState.isScanning || scanState.logs.length > 0 || hasFaradayActivity;
+
+  if (!showTerminal) return null;
 
   const phaseColors = {
     subdomains_done: "#4ade80",
@@ -35,6 +38,14 @@ const FloatingTerminal = () => {
     email_done: "Email",
     directories_done: "Dirs",
   };
+
+  const faradayPhaseColor = faradayStatus.isImporting
+    ? "#f97316"
+    : faradayStatus.error
+      ? "#f87171"
+      : faradayStatus.lastImport
+        ? "#a855f7"
+        : "#1e293b";
 
   if (minimized) {
     return (
@@ -59,8 +70,14 @@ const FloatingTerminal = () => {
           boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
         }}
       >
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block", animation: "pulse 1s infinite" }} />
-        Scan: {scanState.target} ({scanState.progress}%)
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: faradayStatus.isImporting ? "#f97316" : "#4ade80", display: "inline-block", animation: "pulse 1s infinite" }} />
+        {scanState.isScanning
+          ? `Scan: ${scanState.target} (${scanState.progress}%)`
+          : faradayStatus.isImporting
+            ? "Sending to Faraday..."
+            : faradayStatus.lastImport
+              ? `Faraday: ${faradayStatus.importedCount} imported`
+              : `Scan: ${scanState.target}`}
       </div>
     );
   }
@@ -134,6 +151,21 @@ const FloatingTerminal = () => {
             {scanState.phasesDone[field] ? "✓ " : "○ "}{phaseLabels[field]}
           </span>
         ))}
+        {/* Faraday badge */}
+        <span
+          style={{
+            padding: "2px 6px",
+            borderRadius: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            background: faradayPhaseColor,
+            color: faradayStatus.isImporting || faradayStatus.lastImport ? "#0f172a" : "#64748b",
+            transition: "all 0.3s",
+            animation: faradayStatus.isImporting ? "pulse 1s infinite" : "none",
+          }}
+        >
+          {faradayStatus.isImporting ? "⟳ " : faradayStatus.lastImport ? "✓ " : "○ "}Faraday
+        </span>
       </div>
 
       {/* Logs */}
