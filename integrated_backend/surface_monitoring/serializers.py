@@ -21,17 +21,23 @@ class SurfaceMonitorConfigSerializer(serializers.ModelSerializer):
 class GitHubRepositorySerializer(serializers.ModelSerializer):
     latest_scan = serializers.SerializerMethodField()
     scan_count = serializers.SerializerMethodField()
+    # Per-repo event stats from the last 7 days
+    recent_pushes = serializers.SerializerMethodField()
+    recent_creates = serializers.SerializerMethodField()
+    recent_updates = serializers.SerializerMethodField()
+    latest_action_status = serializers.SerializerMethodField()
 
     class Meta:
         model = GitHubRepository
         fields = [
             'id', 'config', 'name', 'full_name', 'repo_url', 'owner',
             'owner_url', 'description', 'visibility', 'language',
-            'default_branch', 'stars', 'forks', 'open_issues',
+            'default_branch', 'stars', 'watching_count', 'forks', 'open_issues',
             'last_github_updated', 'clone_url', 'status',
             'hardcoded_credentials_count', 'scanned_files_count',
             'last_scanned_at', 'org_id', 'discovered_at', 'updated_at',
             'latest_scan', 'scan_count',
+            'recent_pushes', 'recent_creates', 'recent_updates', 'latest_action_status',
         ]
         read_only_fields = (
             'org_id', 'discovered_at', 'updated_at', 'status',
@@ -54,6 +60,54 @@ class GitHubRepositorySerializer(serializers.ModelSerializer):
 
     def get_scan_count(self, obj):
         return RepoScan.objects.filter(repository=obj).count()
+
+    def get_recent_pushes(self, obj):
+        from django.utils import timezone
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(days=7)
+        return RepoEvent.objects.filter(
+            repository=obj, event_type='push',
+            event_occurred_at__gte=cutoff
+        ).count()
+
+    def get_recent_creates(self, obj):
+        from django.utils import timezone
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(days=7)
+        return RepoEvent.objects.filter(
+            repository=obj, event_type='create',
+            event_occurred_at__gte=cutoff
+        ).count()
+
+    def get_recent_updates(self, obj):
+        from django.utils import timezone
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(days=7)
+        return RepoEvent.objects.filter(
+            repository=obj, event_type='repo_updated',
+            event_occurred_at__gte=cutoff
+        ).count()
+
+    def get_latest_action_status(self, obj):
+        latest = RepoEvent.objects.filter(
+            repository=obj, event_type__startswith='action'
+        ).order_by('-event_occurred_at').first()
+        if latest:
+            status_map = {
+                'action_completed': 'completed',
+                'action_failed': 'failed',
+                'action_in_progress': 'running',
+                'action_pending': 'pending',
+                'action_cancelled': 'cancelled',
+            }
+            return {
+                'status': status_map.get(latest.event_type, latest.event_type),
+                'name': latest.action_name,
+                'conclusion': latest.action_conclusion,
+                'run_url': latest.action_run_url,
+                'last_seen': latest.event_occurred_at,
+            }
+        return None
 
 
 class RepoScanSerializer(serializers.ModelSerializer):
@@ -88,7 +142,13 @@ class RepoEventSerializer(serializers.ModelSerializer):
             'action_name', 'action_run_url', 'action_conclusion',
             'event_occurred_at', 'created_at', 'org_id',
         ]
-        read_only_fields = '__all__'
+        read_only_fields = [
+            'id', 'repository', 'repo_name', 'repo_url',
+            'event_type', 'github_event_id', 'actor', 'ref',
+            'commit_message', 'commit_count',
+            'action_name', 'action_run_url', 'action_conclusion',
+            'event_occurred_at', 'created_at', 'org_id',
+        ]
 
 
 class SurfaceMonitorDashboardSerializer(serializers.Serializer):
@@ -96,12 +156,14 @@ class SurfaceMonitorDashboardSerializer(serializers.Serializer):
     total_scans = serializers.IntegerField()
     total_secrets_found = serializers.IntegerField()
     active_keywords = serializers.IntegerField()
+    org_name = serializers.CharField(required=False, default="")
     recent_events = serializers.IntegerField()
     recent_pushes = serializers.IntegerField()
     recent_creates = serializers.IntegerField()
     recent_updates = serializers.IntegerField()
     recent_action_success = serializers.IntegerField()
     recent_action_failed = serializers.IntegerField()
+    total_watching = serializers.IntegerField(required=False, default=0)
     latest_events = serializers.ListField(child=RepoEventSerializer(), required=False)
     repos_by_visibility = serializers.DictField(child=serializers.IntegerField())
     repos_by_language = serializers.DictField(child=serializers.IntegerField())

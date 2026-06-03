@@ -23,7 +23,7 @@ from .serializers import (
     SurfaceMonitorConfigSerializer,
     SurfaceMonitorDashboardSerializer,
 )
-from .tasks import discover_github_repos, poll_repo_events, scan_repo_with_gitleaks
+from .tasks import discover_github_repos, discover_org_repos, poll_repo_events, scan_repo_with_gitleaks
 
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_HEADERS = {
@@ -222,6 +222,7 @@ class GitHubRepositoryViewSet(viewsets.ModelViewSet):
                 language=repo_data.get('language') or '',
                 default_branch=repo_data.get('default_branch', 'main'),
                 stars=repo_data.get('stargazers_count', 0),
+                watching_count=repo_data.get('watchers_count', 0),
                 forks=repo_data.get('forks_count', 0),
                 open_issues=repo_data.get('open_issues_count', 0),
                 clone_url=repo_data.get('clone_url', ''),
@@ -255,6 +256,34 @@ class GitHubRepositoryViewSet(viewsets.ModelViewSet):
             'status': 'polling_started',
         }, status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=False, methods=['post'])
+    def discover_by_org(self, request):
+        """
+        Discover GitHub repositories belonging to the current organization.
+        Searches GitHub using the `org:` qualifier and saves any found repos.
+        Uses update_or_create so existing repos are updated, never duplicated.
+        No data is ever deleted — this is purely additive.
+        """
+        org_id = get_user_org_id(request)
+        from authentication.models import Organization
+        org = Organization.objects.filter(org_id=org_id).first()
+        org_name = org.name if org else "Unknown"
+
+        try:
+            result = discover_org_repos(org_id=org_id)
+            return Response({
+                'org_name': org_name,
+                'status': 'org_discovery_completed',
+                'repos_cleared': 0,
+                'result': result,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'org_name': org_name,
+                'status': 'org_discovery_failed',
+                'error': str(e),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """
@@ -283,11 +312,25 @@ class GitHubRepositoryViewSet(viewsets.ModelViewSet):
         # Event breakdown (last 7 days)
         recent = events.filter(event_occurred_at__gte=timezone.now() - timedelta(days=7))
 
+        # Get org name
+        org_name = "Unknown"
+        try:
+            from authentication.models import Organization
+            org = Organization.objects.filter(org_id=org_id).first()
+            if org:
+                org_name = org.name
+        except Exception:
+            pass
+
+        total_watching = sum(r.watching_count for r in repos if r.watching_count)
+
         serializer = SurfaceMonitorDashboardSerializer(data={
             'total_repos': repos.count(),
             'total_scans': scans.count(),
             'total_secrets_found': total_secrets,
             'active_keywords': configs.filter(is_active=True).count(),
+            'org_name': org_name,
+            'total_watching': total_watching,
             'recent_events': recent.count(),
             'recent_pushes': recent.filter(event_type='push').count(),
             'recent_creates': recent.filter(event_type='create').count(),

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Container, Row, Col, Card, Table, Badge, Button, Form, Spinner, Modal, Alert } from "react-bootstrap";
-import { FiGithub, FiSearch, FiShield, FiUsers, FiStar, FiAlertTriangle, FiFileText, FiRefreshCw, FiPlus, FiActivity, FiEye, FiEyeOff, FiTool, FiGitBranch, FiClock, FiCheckCircle, FiXCircle, FiGitCommit, FiGitPullRequest, FiPlay, FiCheckSquare, FiXSquare, FiMinusSquare, FiUser, FiExternalLink, FiFilter, FiArrowRight } from "react-icons/fi";
+import { FiGithub, FiSearch, FiShield, FiUsers, FiStar, FiAlertTriangle, FiFileText, FiRefreshCw, FiPlus, FiActivity, FiGitBranch, FiClock, FiGitCommit, FiGitPullRequest, FiPlay, FiCheckSquare, FiXSquare, FiMinusSquare, FiUser, FiExternalLink, FiFilter, FiArrowRight, FiEye } from "react-icons/fi";
 import Sidebar from "../components/Sidebar";
 import { surfaceMonitoringApi } from "../utils/api";
 
@@ -56,12 +56,6 @@ const SurfaceWebPage = () => {
   // Dashboard stats
   const [stats, setStats] = useState(null);
 
-  // Configs
-  const [configs, setConfigs] = useState([]);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [configForm, setConfigForm] = useState({ keyword: "", interval_minutes: 60 });
-  const [savingConfig, setSavingConfig] = useState(false);
-
   // Add Repo modal
   const [showAddRepoModal, setShowAddRepoModal] = useState(false);
   const [addRepoForm, setAddRepoForm] = useState({ full_name: "" });
@@ -98,15 +92,6 @@ const SurfaceWebPage = () => {
       setStats(data);
     } catch (err) {
       console.error("Failed to fetch stats:", err);
-    }
-  }, []);
-
-  const fetchConfigs = useCallback(async () => {
-    try {
-      const data = await surfaceMonitoringApi.getConfigs();
-      setConfigs(data.results || data || []);
-    } catch (err) {
-      console.error("Failed to fetch configs:", err);
     }
   }, []);
 
@@ -150,88 +135,26 @@ const SurfaceWebPage = () => {
   useEffect(() => {
     const loadAll = async () => {
       setLoading(true);
-      await Promise.all([fetchStats(), fetchConfigs(), fetchRepos(), fetchScans(), fetchEvents()]);
+      await Promise.all([fetchStats(), fetchRepos(), fetchScans(), fetchEvents()]);
       setLoading(false);
     };
     loadAll();
-  }, [fetchStats, fetchConfigs, fetchRepos, fetchScans, fetchEvents]);
+  }, [fetchStats, fetchRepos, fetchScans, fetchEvents]);
 
-  const handleCreateConfig = async (e) => {
-    e.preventDefault();
-    if (!configForm.keyword.trim()) return;
-    setSavingConfig(true);
-    try {
-      await surfaceMonitoringApi.createConfig(configForm);
-      setShowConfigModal(false);
-      setConfigForm({ keyword: "", interval_minutes: 60 });
-      showNotif(`Monitoring keyword "${configForm.keyword}" created!`, "success");
-      await Promise.all([fetchConfigs(), fetchStats()]);
-    } catch (err) {
-      showNotif("Failed to create config: " + (err.message || "Unknown error"), "danger");
-    } finally {
-      setSavingConfig(false);
-    }
-  };
-
-  const handleToggleConfig = async (config) => {
-    try {
-      await surfaceMonitoringApi.updateConfig(config.id, { is_active: !config.is_active });
-      showNotif(
-        `Monitoring ${config.is_active ? "paused" : "resumed"} for "${config.keyword}"`,
-        "success"
-      );
-      await fetchConfigs();
-    } catch (err) {
-      showNotif("Failed to update config", "danger");
-    }
-  };
-
-  const handleDeleteConfig = async (configId) => {
-    try {
-      await surfaceMonitoringApi.deleteConfig(configId);
-      showNotif("Config deleted", "success");
-      await Promise.all([fetchConfigs(), fetchStats()]);
-    } catch (err) {
-      showNotif("Failed to delete config", "danger");
-    }
-  };
-
-  const handleDiscover = async (configId) => {
+  const handleDiscoverByOrg = async () => {
     setDiscovering(true);
     try {
-      await surfaceMonitoringApi.discoverRepos(configId);
-      showNotif("Repository discovery started! Check the Repositories tab for results.", "info");
-      // Poll for results after a delay
-      setTimeout(async () => {
-        await fetchRepos();
-        await fetchStats();
-        setDiscovering(false);
-      }, 5000);
-    } catch (err) {
-      showNotif("Failed to start discovery", "danger");
+      const result = await surfaceMonitoringApi.discoverByOrg();
+      const discovered = result?.result?.discovered || 0;
+      const githubOrg = result?.result?.github_org || result?.org_name || "your organization";
+      const msg = `Organization discovery completed! Found ${discovered} repo(s) for GitHub org "${githubOrg}".`;
+      showNotif(msg, discovered > 0 ? "success" : "info");
+      // Refresh all data
+      await Promise.all([fetchRepos(), fetchStats(), fetchEvents()]);
       setDiscovering(false);
-    }
-  };
-
-  const handleDiscoverAll = async () => {
-    setDiscovering(true);
-    try {
-      // Trigger discovery for all active configs
-      const activeConfigs = configs.filter((c) => c.is_active);
-      for (const config of activeConfigs) {
-        await surfaceMonitoringApi.discoverRepos(config.id);
-      }
-      showNotif(
-        `Discovery triggered for ${activeConfigs.length} active keyword(s).`,
-        "info"
-      );
-      setTimeout(async () => {
-        await fetchRepos();
-        await fetchStats();
-        setDiscovering(false);
-      }, 5000);
     } catch (err) {
-      showNotif("Failed to start discovery", "danger");
+      const msg = err?.response?.data?.error || err?.response?.data?.detail || err.message || "Unknown error";
+      showNotif("Failed to start organization discovery: " + msg, "danger");
       setDiscovering(false);
     }
   };
@@ -349,22 +272,23 @@ const SurfaceWebPage = () => {
               Surface Web Monitoring
             </h3>
             <p className="text-muted small mb-0">
-              Monitor GitHub for exposed repositories, hardcoded secrets, and leaked credentials.
+              Discover and monitor GitHub repositories matching your organization name.
+              Track pushes, creates, updates, and Actions workflow status.
             </p>
           </div>
           <div className="d-flex gap-2">
             <Button
               variant="outline-primary"
               size="sm"
-              onClick={handleDiscoverAll}
-              disabled={discovering || configs.length === 0}
+              onClick={handleDiscoverByOrg}
+              disabled={discovering}
             >
               {discovering ? (
                 <Spinner animation="border" size="sm" className="me-1" />
               ) : (
                 <FiSearch className="me-1" size={14} />
               )}
-              Discover All
+              {stats?.org_name ? `Discover "${stats.org_name}"` : "Discover by Organization"}
             </Button>
             <Button
               variant="outline-success"
@@ -373,10 +297,6 @@ const SurfaceWebPage = () => {
             >
               <FiGitBranch className="me-1" size={14} />
               Add Repo
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setShowConfigModal(true)}>
-              <FiPlus className="me-1" size={14} />
-              Add Keyword
             </Button>
           </div>
         </div>
@@ -394,6 +314,33 @@ const SurfaceWebPage = () => {
             {/* Stats Cards */}
             {stats && (
               <>
+                {/* Organization Name Banner */}
+                {stats.org_name && (
+                  <div
+                    className="mb-4 p-3 rounded-3 d-flex align-items-center gap-3"
+                    style={{
+                      background: "linear-gradient(135deg, #6e549420, #0d6efd15)",
+                      border: "1px solid #6e549430",
+                      borderRadius: 12,
+                    }}
+                  >
+                    <div
+                      className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
+                      style={{ width: 44, height: 44, background: "#6e549430", color: "#6e5494" }}
+                    >
+                      <FiUsers size={22} />
+                    </div>
+                    <div>
+                      <span className="text-muted small fw-semibold text-uppercase d-block" style={{ fontSize: "0.7rem", letterSpacing: 0.5 }}>
+                        Monitoring Organization
+                      </span>
+                      <h5 className="mb-0 fw-bold" style={{ color: "var(--text-color)" }}>
+                        {stats.org_name}
+                      </h5>
+                    </div>
+                  </div>
+                )}
+
                 {/* Primary Stats Row */}
                 <Row className="mb-4 g-3">
                   <Col md={3} sm={6}>
@@ -433,69 +380,82 @@ const SurfaceWebPage = () => {
                     <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12, borderLeft: "4px solid #198754" }}>
                       <div className="d-flex align-items-center justify-content-between">
                         <div>
-                          <span className="text-muted small fw-semibold text-uppercase">Active Keywords</span>
-                          <h3 className="mb-0 fw-bold mt-1" style={{ color: "#198754" }}>{stats.active_keywords}</h3>
+                          <span className="text-muted small fw-semibold text-uppercase">Activity (7d)</span>
+                          <h3 className="mb-0 fw-bold mt-1" style={{ color: "#198754" }}>{stats.recent_events || 0}</h3>
                         </div>
-                        <FiSearch size={28} style={{ color: "#198754", opacity: 0.4 }} />
+                        <FiClock size={28} style={{ color: "#198754", opacity: 0.4 }} />
                       </div>
                     </Card>
                   </Col>
                 </Row>
 
-                {/* Event Stats Row */}
+                {/* Event Stats Row - PUSH, CREATE, UPDATE, WATCHING, ACTIONS */}
                 <Row className="mb-4 g-3">
-                  <Col md={3} sm={6}>
-                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12, borderLeft: "4px solid #0d6efd" }}>
+                  <Col md={2} sm={6}>
+                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12 }}>
                       <div className="d-flex align-items-center gap-3">
                         <div className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style={{ width: 36, height: 36, background: "#0d6efd20", color: "#0d6efd" }}>
                           <FiGitCommit size={16} />
                         </div>
                         <div>
-                          <span className="text-muted small fw-semibold text-uppercase d-block" style={{ fontSize: "0.7rem", lineHeight: 1.2 }}>Repo Pushed</span>
-                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#0d6efd", fontSize: "1.2rem" }}>{stats.recent_pushes || 0}</h4>
+                          <span className="text-muted small d-block" style={{ fontSize: "0.65rem", lineHeight: 1.2, textTransform: "uppercase", fontWeight: 600 }}>Pushed</span>
+                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#0d6efd", fontSize: "1.1rem" }}>{stats.recent_pushes || 0}</h4>
                         </div>
                       </div>
                     </Card>
                   </Col>
-                  <Col md={3} sm={6}>
-                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12, borderLeft: "4px solid #198754" }}>
+                  <Col md={2} sm={6}>
+                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12 }}>
                       <div className="d-flex align-items-center gap-3">
                         <div className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style={{ width: 36, height: 36, background: "#19875420", color: "#198754" }}>
                           <FiGitPullRequest size={16} />
                         </div>
                         <div>
-                          <span className="text-muted small fw-semibold text-uppercase d-block" style={{ fontSize: "0.7rem", lineHeight: 1.2 }}>Repo Created</span>
-                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#198754", fontSize: "1.2rem" }}>{stats.recent_creates || 0}</h4>
+                          <span className="text-muted small d-block" style={{ fontSize: "0.65rem", lineHeight: 1.2, textTransform: "uppercase", fontWeight: 600 }}>Created</span>
+                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#198754", fontSize: "1.1rem" }}>{stats.recent_creates || 0}</h4>
                         </div>
                       </div>
                     </Card>
                   </Col>
-                  <Col md={3} sm={6}>
-                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12, borderLeft: "4px solid #6f42c1" }}>
+                  <Col md={2} sm={6}>
+                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12 }}>
                       <div className="d-flex align-items-center gap-3">
                         <div className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style={{ width: 36, height: 36, background: "#6f42c120", color: "#6f42c1" }}>
                           <FiRefreshCw size={16} />
                         </div>
                         <div>
-                          <span className="text-muted small fw-semibold text-uppercase d-block" style={{ fontSize: "0.7rem", lineHeight: 1.2 }}>Repo Updated</span>
-                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#6f42c1", fontSize: "1.2rem" }}>{stats.recent_updates || 0}</h4>
+                          <span className="text-muted small d-block" style={{ fontSize: "0.65rem", lineHeight: 1.2, textTransform: "uppercase", fontWeight: 600 }}>Updated</span>
+                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#6f42c1", fontSize: "1.1rem" }}>{stats.recent_updates || 0}</h4>
                         </div>
                       </div>
                     </Card>
                   </Col>
                   <Col md={3} sm={6}>
-                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12, borderLeft: "4px solid #fd7e14" }}>
+                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12 }}>
                       <div className="d-flex align-items-center gap-3">
                         <div className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style={{ width: 36, height: 36, background: "#fd7e1420", color: "#fd7e14" }}>
                           <FiPlay size={16} />
                         </div>
                         <div>
-                          <span className="text-muted small fw-semibold text-uppercase d-block" style={{ fontSize: "0.7rem", lineHeight: 1.2 }}>Actions</span>
+                          <span className="text-muted small d-block" style={{ fontSize: "0.65rem", lineHeight: 1.2, textTransform: "uppercase", fontWeight: 600 }}>Actions</span>
                           <div className="d-flex gap-2 mt-1 align-items-center">
-                            <span className="fw-bold" style={{ color: "#198754", fontSize: "1rem" }}>{stats.recent_action_success || 0}</span>
-                            <span className="text-muted" style={{ fontSize: "0.75rem" }}>/</span>
-                            <span className="fw-bold" style={{ color: "#dc3545", fontSize: "1rem" }}>{stats.recent_action_failed || 0}</span>
+                            <span className="fw-bold" style={{ color: "#198754", fontSize: "0.95rem" }}>{stats.recent_action_success || 0} OK</span>
+                            <span className="text-muted" style={{ fontSize: "0.7rem" }}>/</span>
+                            <span className="fw-bold" style={{ color: "#dc3545", fontSize: "0.95rem" }}>{stats.recent_action_failed || 0} Fail</span>
                           </div>
+                        </div>
+                      </div>
+                    </Card>
+                  </Col>
+                  <Col md={3} sm={6}>
+                    <Card className="border-0 p-3" style={{ background: "var(--header-bg)", border: "1px solid var(--header-border)", borderRadius: 12 }}>
+                      <div className="d-flex align-items-center gap-3">
+                        <div className="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style={{ width: 36, height: 36, background: "#0dcaf020", color: "#0dcaf0" }}>
+                          <FiEye size={16} />
+                        </div>
+                        <div>
+                          <span className="text-muted small d-block" style={{ fontSize: "0.65rem", lineHeight: 1.2, textTransform: "uppercase", fontWeight: 600 }}>Watching</span>
+                          <h4 className="mb-0 fw-bold mt-1" style={{ color: "#0dcaf0", fontSize: "1.1rem" }}>{stats.total_watching || 0}</h4>
                         </div>
                       </div>
                     </Card>
@@ -512,7 +472,6 @@ const SurfaceWebPage = () => {
               {[
                 { id: "dashboard", label: "Dashboard", icon: FiActivity },
                 { id: "activity", label: "Activity", icon: FiClock },
-                { id: "configs", label: "Keywords", icon: FiSearch },
                 { id: "repos", label: "Repositories", icon: FiGithub },
                 { id: "scans", label: "Scan History", icon: FiShield },
               ].map((tab) => {
@@ -585,7 +544,7 @@ const SurfaceWebPage = () => {
                                   <span className="fw-semibold small" style={{ color: "var(--text-color)" }}>
                                     {ev.repo_name}
                                   </span>
-                                  <span className="text-muted" style={{ fontSize: "0.7rem" }}>{ev.event_type.replace(/_/g, ' ')}</span>
+                                  <span className="text-muted" style={{ fontSize: "0.7rem" }}>{ev.event_type?.replace(/_/g, ' ') || 'event'}</span>
                                 </div>
                                 {ev.commit_message && (
                                   <small className="text-muted d-block" style={{ fontSize: "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 400 }}>
@@ -608,7 +567,7 @@ const SurfaceWebPage = () => {
                     ) : (
                       <div className="text-center py-3 text-muted">
                         <FiClock size={24} className="mb-1 opacity-50" />
-                        <p className="small mb-0">No recent activity. Poll events from the Activity tab to see GitHub events here.</p>
+                        <p className="small mb-0">No recent activity. Click <strong>"Discover by Organization"</strong> to find repos, then poll events from the Activity tab.</p>
                       </div>
                     )}
                   </Card.Body>
@@ -671,9 +630,9 @@ const SurfaceWebPage = () => {
                         </div>
                         <Row className="g-3">
                           <Col md={3}>
-                            <Button variant="outline-primary" className="w-100 py-3" onClick={() => setActiveTab("configs")} style={{ borderRadius: 12 }}>
-                              <FiSearch size={20} className="mb-1 d-block mx-auto" />
-                              <span className="small">Manage Keywords</span>
+                            <Button variant="outline-primary" className="w-100 py-3" onClick={handleDiscoverByOrg} disabled={discovering} style={{ borderRadius: 12 }}>
+                              {discovering ? <Spinner animation="border" size="sm" className="mb-1 d-block mx-auto" /> : <FiSearch size={20} className="mb-1 d-block mx-auto" />}
+                              <span className="small">Discover by {stats?.org_name ? `"${stats.org_name}"` : "Organization"}</span>
                             </Button>
                           </Col>
                           <Col md={3}>
@@ -702,103 +661,6 @@ const SurfaceWebPage = () => {
               </>
             )}
 
-            {/* Tab: Keywords / Configs */}
-            {activeTab === "configs" && (
-              <Card
-                className="border-0"
-                style={{
-                  background: "var(--header-bg)",
-                  border: "1px solid var(--header-border)",
-                  borderRadius: 16,
-                }}
-              >
-                <Card.Body>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h6 className="fw-bold mb-0" style={{ color: "var(--text-color)" }}>
-                      <FiSearch className="me-2" />
-                      Monitoring Keywords
-                    </h6>
-                    <Button size="sm" variant="primary" onClick={() => setShowConfigModal(true)}>
-                      <FiPlus className="me-1" />
-                      Add Keyword
-                    </Button>
-                  </div>
-                  {configs.length === 0 ? (
-                    <div className="text-center py-4 text-muted">
-                      <FiSearch size={32} className="mb-2 opacity-50" />
-                      <p className="small mb-0">
-                        No keywords configured. Add a keyword (e.g., "api-key", "stock", "config") to start
-                        discovering GitHub repositories.
-                      </p>
-                    </div>
-                  ) : (
-                    <Table hover className="mb-0 align-middle">
-                      <thead>
-                        <tr>
-                          <th className="border-0">Keyword</th>
-                          <th className="border-0">Status</th>
-                          <th className="border-0">Interval</th>
-                          <th className="border-0">Repos Found</th>
-                          <th className="border-0">Created</th>
-                          <th className="border-0 text-end">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {configs.map((config) => (
-                          <tr key={config.id}>
-                            <td className="fw-semibold" style={{ color: "var(--text-color)" }}>
-                              <code>{config.keyword}</code>
-                            </td>
-                            <td>
-                              <Badge bg={config.is_active ? "success" : "secondary"}>
-                                {config.is_active ? "Active" : "Paused"}
-                              </Badge>
-                            </td>
-                            <td className="text-muted">{config.interval_minutes}m</td>
-                            <td>
-                              <Badge bg="info" pill>
-                                {config.repo_count || 0}
-                              </Badge>
-                            </td>
-                            <td className="text-muted small">{formatDate(config.created_at)}</td>
-                            <td className="text-end">
-                              <div className="d-flex gap-1 justify-content-end">
-                                <Button
-                                  size="sm"
-                                  variant={config.is_active ? "outline-warning" : "outline-success"}
-                                  title={config.is_active ? "Pause" : "Resume"}
-                                  onClick={() => handleToggleConfig(config)}
-                                >
-                                  {config.is_active ? <FiEyeOff size={14} /> : <FiEye size={14} />}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline-primary"
-                                  title="Discover Repos"
-                                  onClick={() => handleDiscover(config.id)}
-                                  disabled={discovering}
-                                >
-                                  <FiSearch size={14} />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline-danger"
-                                  title="Delete"
-                                  onClick={() => handleDeleteConfig(config.id)}
-                                >
-                                  <FiXCircle size={14} />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  )}
-                </Card.Body>
-              </Card>
-            )}
-
             {/* Tab: Repositories */}
             {activeTab === "repos" && (
               <Card
@@ -814,20 +676,25 @@ const SurfaceWebPage = () => {
                     <h6 className="fw-bold mb-0" style={{ color: "var(--text-color)" }}>
                       <FiGithub className="me-2" />
                       Discovered Repositories
+                      {stats?.org_name && (
+                        <span className="text-muted ms-2" style={{ fontSize: "0.8rem", fontWeight: 400 }}>
+                          — matching "{stats.org_name}"
+                        </span>
+                      )}
                     </h6>
                     <div className="d-flex gap-2">
                       <Button
                         size="sm"
                         variant="outline-primary"
-                        onClick={handleDiscoverAll}
-                        disabled={discovering || configs.length === 0}
+                        onClick={handleDiscoverByOrg}
+                        disabled={discovering}
                       >
                         {discovering ? (
                           <Spinner animation="border" size="sm" className="me-1" />
                         ) : (
-                          <FiRefreshCw className="me-1" size={14} />
+                          <FiSearch className="me-1" size={14} />
                         )}
-                        Refresh Discovery
+                        {stats?.org_name ? `Discover "${stats.org_name}"` : "Discover by Organization"}
                       </Button>
                       <Button
                         size="sm"
@@ -854,8 +721,7 @@ const SurfaceWebPage = () => {
                     <div className="text-center py-4 text-muted">
                       <FiGithub size={32} className="mb-2 opacity-50" />
                       <p className="small mb-0">
-                        No repositories discovered yet. Add a keyword and click "Discover All" to find
-                        repositories.
+                        No repositories discovered yet. Click <strong>"Discover by Organization"</strong> to find repos matching your organization name on GitHub.
                       </p>
                     </div>
                   ) : (
@@ -864,22 +730,36 @@ const SurfaceWebPage = () => {
                         <thead>
                           <tr>
                             <th className="py-3 px-3 border-0">Repository</th>
-                            <th className="py-3 px-3 border-0">Owner</th>
-                            <th className="py-3 px-3 border-0">Visibility</th>
-                            <th className="py-3 px-3 border-0">Status</th>
+                            <th className="py-3 px-3 border-0 text-center" title="Watching">
+                              <FiEye size={14} /> Watch
+                            </th>
+                            <th className="py-3 px-3 border-0 text-center" title="Pushes (7d)">
+                              <FiGitCommit size={14} /> Push
+                            </th>
+                            <th className="py-3 px-3 border-0 text-center" title="Created (7d)">
+                              <FiGitPullRequest size={14} /> Create
+                            </th>
+                            <th className="py-3 px-3 border-0 text-center" title="Updated (7d)">
+                              <FiRefreshCw size={14} /> Update
+                            </th>
+                            <th className="py-3 px-3 border-0 text-center" title="Latest Action Status">
+                              <FiPlay size={14} /> Action
+                            </th>
+                            <th className="py-3 px-3 border-0 text-center">
+                              <FiStar size={14} /> Stars
+                            </th>
                             <th className="py-3 px-3 border-0 text-center">
                               <FiAlertTriangle size={14} /> Secrets
                             </th>
-                            <th className="py-3 px-3 border-0 text-center">
-                              <FiFileText size={14} /> Files
-                            </th>
-                            <th className="py-3 px-3 border-0 text-center">Stars</th>
-                            <th className="py-3 px-3 border-0">Last Scanned</th>
-                            <th className="py-3 px-3 border-0 text-end">Action</th>
+                            <th className="py-3 px-3 border-0">Status</th>
+                            <th className="py-3 px-3 border-0 text-end">Act</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {repos.map((repo) => (
+                          {repos.map((repo) => {
+                            const actionStatus = repo.latest_action_status;
+                            const actionColor = actionStatus?.status === 'completed' ? '#198754' : actionStatus?.status === 'failed' ? '#dc3545' : actionStatus?.status === 'running' ? '#fd7e14' : actionStatus?.status === 'cancelled' ? '#6c757d' : '#adb5bd';
+                            return (
                             <tr key={repo.id}>
                               <td className="px-3 py-3">
                                 <div className="d-flex flex-column">
@@ -895,21 +775,55 @@ const SurfaceWebPage = () => {
                                   <span className="small text-muted">{truncate(repo.description, 50)}</span>
                                 </div>
                               </td>
-                              <td className="px-3 py-3">
-                                <div className="d-flex align-items-center gap-1">
-                                  <FiUsers size={12} className="text-muted" />
-                                  <span className="small">{repo.owner}</span>
+                              <td className="px-3 py-3 text-center">
+                                <span className="fw-semibold" style={{ color: "#0dcaf0", fontSize: "0.9rem" }}>
+                                  {repo.watching_count || 0}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className="fw-semibold" style={{ color: "#0d6efd" }}>
+                                  {repo.recent_pushes || 0}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className="fw-semibold" style={{ color: "#198754" }}>
+                                  {repo.recent_creates || 0}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className="fw-semibold" style={{ color: "#6f42c1" }}>
+                                  {repo.recent_updates || 0}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                {actionStatus ? (
+                                  <div title={`${actionStatus.name || ''} - ${actionStatus.conclusion || actionStatus.status}`}>
+                                    <span
+                                      className="fw-semibold small d-inline-flex align-items-center gap-1"
+                                      style={{ color: actionColor }}
+                                    >
+                                      <span
+                                        style={{
+                                          display: 'inline-block',
+                                          width: 8,
+                                          height: 8,
+                                          borderRadius: '50%',
+                                          background: actionColor,
+                                          flexShrink: 0,
+                                        }}
+                                      />
+                                      {actionStatus.status}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted" style={{ fontSize: "0.75rem" }}>—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <div className="d-flex align-items-center justify-content-center gap-1">
+                                  <FiStar size={12} className="text-warning" />
+                                  <span>{repo.stars}</span>
                                 </div>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge bg={VISIBILITY_BADGE[repo.visibility] || "secondary"} pill>
-                                  {repo.visibility}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge bg={STATUS_BADGE[repo.status] || "secondary"} pill>
-                                  {repo.status}
-                                </Badge>
                               </td>
                               <td className="px-3 py-3 text-center">
                                 {repo.hardcoded_credentials_count > 0 ? (
@@ -920,31 +834,46 @@ const SurfaceWebPage = () => {
                                   <span className="text-muted">{repo.hardcoded_credentials_count}</span>
                                 )}
                               </td>
-                              <td className="px-3 py-3 text-center text-muted">{repo.scanned_files_count}</td>
-                              <td className="px-3 py-3 text-center">
-                                <div className="d-flex align-items-center justify-content-center gap-1">
-                                  <FiStar size={12} className="text-warning" />
-                                  <span>{repo.stars}</span>
+                              <td className="px-3 py-3">
+                                <div className="d-flex flex-column align-items-start gap-1">
+                                  <Badge bg={STATUS_BADGE[repo.status] || "secondary"} pill style={{ fontSize: "0.65rem" }}>
+                                    {repo.status}
+                                  </Badge>
+                                  <small className="text-muted" style={{ fontSize: "0.6rem" }}>
+                                    {formatDate(repo.last_scanned_at)}
+                                  </small>
                                 </div>
                               </td>
-                              <td className="px-3 py-3 small text-muted">{formatDate(repo.last_scanned_at)}</td>
                               <td className="px-3 py-3 text-end">
-                                <Button
-                                  size="sm"
-                                  variant="outline-danger"
-                                  onClick={() => handleScanRepo(repo.id)}
-                                  disabled={scanningRepoId === repo.id || repo.status === "scanning"}
-                                  title="Scan for secrets"
-                                >
-                                  {scanningRepoId === repo.id ? (
-                                    <Spinner animation="border" size="sm" />
-                                  ) : (
-                                    <FiShield size={14} />
-                                  )}
-                                </Button>
+                                <div className="d-flex gap-1 justify-content-end">
+                                  <Button
+                                    size="sm"
+                                    variant="outline-secondary"
+                                    onClick={() => handlePollEvents(repo.id)}
+                                    disabled={pollingRepoId === repo.id}
+                                    title="Poll events"
+                                    style={{ padding: "4px 8px", fontSize: "0.7rem" }}
+                                  >
+                                    <FiRefreshCw size={11} />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline-danger"
+                                    onClick={() => handleScanRepo(repo.id)}
+                                    disabled={scanningRepoId === repo.id || repo.status === "scanning"}
+                                    title="Scan for secrets"
+                                    style={{ padding: "4px 8px", fontSize: "0.7rem" }}
+                                  >
+                                    {scanningRepoId === repo.id ? (
+                                      <Spinner animation="border" size="sm" />
+                                    ) : (
+                                      <FiShield size={11} />
+                                    )}
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
-                          ))}
+                          )})}
                         </tbody>
                       </Table>
                     </div>
@@ -1013,8 +942,7 @@ const SurfaceWebPage = () => {
                     <div className="text-center py-4 text-muted">
                       <FiClock size={32} className="mb-2 opacity-50" />
                       <p className="small mb-0">
-                        No GitHub events recorded yet. Click "Poll Events" on a repository to fetch its
-                        recent activity.
+                        No GitHub events recorded yet. Discover repos by organization and poll events to see activity here.
                       </p>
                     </div>
                   ) : (
@@ -1070,7 +998,7 @@ const SurfaceWebPage = () => {
                                       fontWeight: 500,
                                     }}
                                   >
-                                    {ev.event_type.replace(/_/g, ' ')}
+                                    {ev.event_type?.replace(/_/g, ' ') || ev.event_type}
                                   </Badge>
                                 </div>
                                 <small
@@ -1095,7 +1023,7 @@ const SurfaceWebPage = () => {
                                   {ev.ref && (
                                     <small className="text-muted d-block">
                                       <FiGitBranch size={11} className="me-1" />
-                                      {ev.ref.replace('refs/heads/', '')}
+                                      {ev.ref?.replace('refs/heads/', '') || ev.ref}
                                     </small>
                                   )}
                                   {ev.commit_message && (
@@ -1211,8 +1139,7 @@ const SurfaceWebPage = () => {
                     <div className="text-center py-4 text-muted">
                       <FiShield size={32} className="mb-2 opacity-50" />
                       <p className="small mb-0">
-                        No scans performed yet. Click the shield icon on a repository to scan it for
-                        hardcoded secrets.
+                        No scans performed yet. Click the shield icon on a repository to scan it for hardcoded secrets.
                       </p>
                     </div>
                   ) : (
@@ -1318,57 +1245,6 @@ const SurfaceWebPage = () => {
                   <FiPlus className="me-1" />
                 )}
                 Add Repository
-              </Button>
-            </Modal.Footer>
-          </Form>
-        </Modal>
-
-        {/* Add Keyword Modal */}
-        <Modal show={showConfigModal} onHide={() => setShowConfigModal(false)} centered>
-          <Modal.Header closeButton style={{ borderBottom: "1px solid var(--border-color)" }}>
-            <Modal.Title className="fw-bold" style={{ fontSize: "1rem" }}>
-              <FiSearch className="me-2" />
-              Add Monitoring Keyword
-            </Modal.Title>
-          </Modal.Header>
-          <Form onSubmit={handleCreateConfig}>
-            <Modal.Body>
-              <Form.Group className="mb-3">
-                <Form.Label className="small fw-semibold text-muted">SEARCH KEYWORD</Form.Label>
-                <Form.Control
-                  type="text"
-                  placeholder='e.g., "api-key", "config", "stock", "internal"'
-                  value={configForm.keyword}
-                  onChange={(e) => setConfigForm({ ...configForm, keyword: e.target.value })}
-                  required
-                  style={{ borderRadius: 10, height: 46 }}
-                />
-                <Form.Text className="text-muted">
-                  GitHub will be searched for repositories matching this keyword.
-                </Form.Text>
-              </Form.Group>
-              <Form.Group className="mb-3">
-                <Form.Label className="small fw-semibold text-muted">DISCOVERY INTERVAL (MINUTES)</Form.Label>
-                <Form.Control
-                  type="number"
-                  min={10}
-                  max={10080}
-                  value={configForm.interval_minutes}
-                  onChange={(e) => setConfigForm({ ...configForm, interval_minutes: parseInt(e.target.value) || 60 })}
-                  style={{ borderRadius: 10, height: 46 }}
-                />
-                <Form.Text className="text-muted">
-                  How often to re-run discovery (min: 10 min, max: 10080 min / 7 days).
-                </Form.Text>
-              </Form.Group>
-            </Modal.Body>
-            <Modal.Footer style={{ borderTop: "1px solid var(--border-color)" }}>
-              <Button variant="outline-secondary" onClick={() => setShowConfigModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" disabled={savingConfig || !configForm.keyword.trim()}>
-                {savingConfig ? <Spinner animation="border" size="sm" className="me-1" /> : <FiPlus className="me-1" />}
-                Add Keyword
               </Button>
             </Modal.Footer>
           </Form>

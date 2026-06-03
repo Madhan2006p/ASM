@@ -31,6 +31,131 @@ if _GITHUB_TOKEN:
     GITHUB_HEADERS["Authorization"] = f"token {_GITHUB_TOKEN}"
 
 
+def _normalize_github_org_login(org_name):
+    """Convert a display org name into a likely GitHub organization login."""
+    org_name = (org_name or "").strip()
+    match = re.search(r"github\.com[:/]([^/\s]+)", org_name)
+    if match:
+        org_name = match.group(1)
+    return re.sub(r"[^a-z0-9-]", "", org_name.lower())
+
+
+def _search_and_save_repos(org_id, query, discovered_set):
+    """Run a single GitHub search query, persist matching repos, and return count."""
+    page = 1
+    count = 0
+    while page <= 2:
+        params = {
+            "q": query,
+            "sort": "updated",
+            "order": "desc",
+            "per_page": 100,
+            "page": page,
+        }
+        resp = requests.get(
+            f"{GITHUB_API_BASE}/search/repositories",
+            headers=GITHUB_HEADERS,
+            params=params,
+            timeout=15,
+        )
+        if resp.status_code == 403:
+            logger.warning("GitHub API rate limit hit. Stopping pagination.")
+            break
+        if resp.status_code != 200:
+            logger.error("GitHub API error: %s %s", resp.status_code, resp.text[:200])
+            break
+        data = resp.json()
+        items = data.get("items", [])
+        if not items:
+            break
+        for repo_data in items:
+            full_name = repo_data.get("full_name", "")
+            if full_name in discovered_set:
+                continue
+            discovered_set.add(full_name)
+            owner_data = repo_data.get("owner", {})
+            visibility = repo_data.get("visibility", "public")
+            repo_obj, created = GitHubRepository.objects.update_or_create(
+                full_name=full_name,
+                org_id=org_id,
+                defaults={
+                    "name": repo_data.get("name", ""),
+                    "repo_url": repo_data.get("html_url", ""),
+                    "owner": owner_data.get("login", ""),
+                    "owner_url": owner_data.get("html_url", ""),
+                    "description": repo_data.get("description") or "",
+                    "visibility": visibility,
+                    "language": repo_data.get("language") or "",
+                    "default_branch": repo_data.get("default_branch", "main"),
+                    "stars": repo_data.get("stargazers_count", 0),
+                    "watching_count": repo_data.get("watchers_count", 0),
+                    "forks": repo_data.get("forks_count", 0),
+                    "open_issues": repo_data.get("open_issues_count", 0),
+                    "clone_url": repo_data.get("clone_url", ""),
+                    "last_github_updated": repo_data.get("updated_at"),
+                    "status": "discovered",
+                },
+            )
+            count += 1
+        if len(items) < 100:
+            break
+        page += 1
+    return count, discovered_set
+
+
+@shared_task(bind=True)
+def discover_org_repos(self, org_id="1"):
+    """
+    Search GitHub for repositories matching this organization's name.
+    Runs multiple searches to catch variations:
+      - condensed name (e.g. "hackersinfotech" in name)
+      - individual words from the original display name (e.g. "Hackers Info Tech" in name)
+    Results are merged and persisted with no name-pattern filter.
+    """
+    try:
+        from authentication.models import Organization
+        org = Organization.objects.filter(org_id=org_id).first()
+        if not org:
+            return {"error": f"Organization with org_id={org_id} not found"}
+        org_name = org.name
+    except Exception as e:
+        logger.error("Failed to fetch organization: %s", e)
+        return {"error": str(e)}
+
+    github_org = _normalize_github_org_login(org_name)
+    if not github_org:
+        return {"error": f'Could not derive GitHub organization from "{org_name}"'}
+
+    discovered_set = set()
+    total = 0
+
+    try:
+        # Search 1: condensed name in repo name (e.g. "hackersinfotech" in name)
+        c, discovered_set = _search_and_save_repos(
+            org_id, f"{github_org} in:name", discovered_set
+        )
+        total += c
+
+        # Search 2: original display-name words in repo name
+        # (e.g. "Hackers Info Tech" -> matches Hackers_info_tech_project)
+        if org_name.strip():
+            c, discovered_set = _search_and_save_repos(
+                org_id, f'"{org_name}" in:name', discovered_set
+            )
+            total += c
+
+    except requests.RequestException as e:
+        logger.error("GitHub API request failed: %s", e)
+        return {"error": str(e), "discovered": total}
+
+    return {
+        "org_name": org_name,
+        "github_org": github_org,
+        "discovered": total,
+        "repos": list(discovered_set),
+    }
+
+
 @shared_task(bind=True)
 def discover_github_repos(self, config_id=None, keyword=None):
     """
@@ -100,6 +225,7 @@ def discover_github_repos(self, config_id=None, keyword=None):
                         "language": repo_data.get("language") or "",
                         "default_branch": repo_data.get("default_branch", "main"),
                         "stars": repo_data.get("stargazers_count", 0),
+                        "watching_count": repo_data.get("watchers_count", 0),
                         "forks": repo_data.get("forks_count", 0),
                         "open_issues": repo_data.get("open_issues_count", 0),
                         "clone_url": repo_data.get("clone_url", ""),

@@ -69,6 +69,7 @@ class GitHubRepository(models.Model):
     language = models.CharField(max_length=100, blank=True, default='')
     default_branch = models.CharField(max_length=100, blank=True, default='main')
     stars = models.IntegerField(default=0)
+    watching_count = models.IntegerField(default=0, help_text="Number of users watching/subscribing to this repo")
     forks = models.IntegerField(default=0)
     open_issues = models.IntegerField(default=0)
     last_github_updated = models.DateTimeField(null=True, blank=True)

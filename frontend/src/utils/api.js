@@ -333,6 +333,12 @@ export const surfaceMonitoringApi = {
     return response.data;
   },
 
+  // Org-based discovery
+  discoverByOrg: async () => {
+    const response = await api.post(`${SURFACE_MONITORING_URL}/repos/discover_by_org/`);
+    return response.data;
+  },
+
   // Events
   getEvents: async (repoId = null, type = null) => {
     const params = {};
