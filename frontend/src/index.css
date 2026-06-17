@@ -492,6 +492,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   background-color: var(--bg-main);
+  padding-bottom: 4rem;
 }
 
 /* ====================================================

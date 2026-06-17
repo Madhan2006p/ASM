@@ -370,6 +370,9 @@ const Settings = ({ user, setUser }) => {
 
         </div>
       </div>
+      
+      {/* Spacer to guarantee bottom padding renders correctly */}
+      <div style={{ height: '3rem', flexShrink: 0, width: '100%' }} />
     </div>
   );
 };

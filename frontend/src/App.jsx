@@ -152,8 +152,8 @@ function App() {
     : scansList;
 
   if (!isAuthenticated) {
-    if (authRoute === 'login')  return <Login  onLogin={handleLogin} onNavigate={setAuthRoute} />;
-    return <LandingPage onNavigate={setAuthRoute} />;
+    if (authRoute === 'login')  return <Login  onLogin={handleLogin} onNavigate={setAuthRoute} theme={theme} setTheme={setTheme} />;
+    return <LandingPage onNavigate={setAuthRoute} theme={theme} setTheme={setTheme} />;
   }
 
   return (

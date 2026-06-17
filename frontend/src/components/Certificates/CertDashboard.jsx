@@ -1,5 +1,5 @@
 import React from 'react';
-import { Filter, Download, ArrowRight } from 'lucide-react';
+import { Filter, Download, ArrowRight, Calendar, Lock, ShieldCheck, Settings, Clock } from 'lucide-react';
 import './CertDashboard.css';
 import PageHeaderCard from '../common/PageHeaderCard';
 
@@ -100,26 +100,28 @@ const CertDashboard = ({ certs = [], loading }) => {
 
           <div className="score-metrics">
             <div className="metric-row">
-              <span className="metric-lbl">🗓️ Expiration Health</span>
+              <span className="metric-lbl" style={{display: 'flex', alignItems: 'center'}}><Calendar size={14} style={{marginRight: '6px', color: '#3B82F6'}} /> Expiration Health</span>
               <span className={`metric-val ${expiredCount > 0 ? 'val-fair' : expiringSoonCount > 0 ? 'val-good' : 'val-excellent'}`}>
                 {expiredCount > 0 ? 'Poor' : expiringSoonCount > 0 ? 'Good' : 'Excellent'}
               </span>
             </div>
             <div className="metric-row">
-              <span className="metric-lbl">🔒 Cipher Strength</span>
+              <span className="metric-lbl" style={{display: 'flex', alignItems: 'center'}}><Lock size={14} style={{marginRight: '6px', color: '#F59E0B'}} /> Cipher Strength</span>
               <span className={`metric-val ${weakCount > 0 ? 'val-good' : 'val-excellent'}`}>
                 {weakCount > 0 ? 'Fair' : 'Excellent'}
               </span>
             </div>
             <div className="metric-row">
-              <span className="metric-lbl">✅ Certificate Trust</span>
+              <span className="metric-lbl" style={{display: 'flex', alignItems: 'center'}}><ShieldCheck size={14} style={{marginRight: '6px', color: '#10B981'}} /> Certificate Trust</span>
               <span className={`metric-val ${certs.some(c => !c.isTrusted) ? 'val-fair' : 'val-excellent'}`}>
                 {certs.some(c => !c.isTrusted) ? 'Untrusted present' : 'Trusted'}
               </span>
             </div>
             <div className="metric-row">
-              <span className="metric-lbl">⚙️ TLS Config</span>
-              <span className="metric-val val-excellent">Excellent</span>
+              <span className="metric-lbl" style={{display: 'flex', alignItems: 'center'}}><Settings size={14} style={{marginRight: '6px', color: '#8B5CF6'}} /> TLS Config</span>
+              <span className={`metric-val ${count10 > 0 ? 'val-fair' : (count12 > 0 ? 'val-good' : 'val-excellent')}`}>
+                {certs.length === 0 ? 'N/A' : (count10 > 0 ? 'Weak' : (count13 === totalCerts ? 'Excellent' : 'Good'))}
+              </span>
             </div>
           </div>
         </div>
@@ -127,7 +129,7 @@ const CertDashboard = ({ certs = [], loading }) => {
         {/* Expiring List */}
         <div className="bottom-card border-orange">
            <h3 className="bottom-card-title">
-             <span style={{color: '#F97316'}}>⏱️</span> Expiring Certificates
+             <Clock size={16} color="#F97316" /> Expiring Certificates
            </h3>
            <p className="bottom-card-subtitle">Critically close to expiration boundaries.</p>
            

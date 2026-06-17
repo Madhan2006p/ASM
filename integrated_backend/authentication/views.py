@@ -94,11 +94,13 @@ class LoginView(APIView):
         username = request.data.get("username", "")
 
         if email:
-            try:
-                user_obj = User.objects.get(email=email)
+            user_obj = User.objects.filter(email=email).first()
+            if user_obj:
                 username = user_obj.username
-            except User.DoesNotExist:
-                pass
+            else:
+                # If not found by email, maybe they typed their username in the email field
+                if not username:
+                    username = email
 
         user = authenticate(username=username, password=password)
         if not user:

@@ -1,5 +1,5 @@
 .mobile-vapt-container {
-  padding: 2rem;
+  padding: 2rem 2rem 4rem;
   background-color: var(--bg-main);
   flex: 1;
   min-height: calc(100vh - 64px);

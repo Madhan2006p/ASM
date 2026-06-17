@@ -59,7 +59,7 @@
 .auth-left-panel {
   flex: 1.1;
   position: relative;
-  background: #ffffff url('/asm_loginpage_img.avif') center / contain no-repeat;
+  background: #080C14 url('/asmimg.png') center / contain no-repeat;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -230,10 +230,10 @@
 .auth-input-group input {
   width: 100% !important;
   padding: 0.85rem 1.15rem;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
   border-radius: 30px !important;
   font-size: 0.9rem;
-  background: rgba(15, 23, 42, 0.55) !important;
+  background: rgba(30, 41, 59, 0.65) !important;
   color: #EFF6FF !important;
   caret-color: #ffffff !important;
   transition: all 0.22s ease;
@@ -263,7 +263,7 @@
   -webkit-box-shadow: 0 0 0 30px #0f172a inset !important;
   -webkit-text-fill-color: #EFF6FF !important;
   caret-color: #ffffff !important;
-  transition: background-color 5000s ease-in-out 0s;
+  transition: background-color 0s, color 0s, -webkit-box-shadow 0.2s ease !important;
 }
 
 /* Light mode overrides for autofill */
@@ -404,7 +404,7 @@
    LIGHT MODE
    ══════════════════════════════════════════════════════ */
 .light-mode .auth-page {
-  background: radial-gradient(ellipse at 20% 50%, #EFF6FF 0%, #DBEAFE 50%, #E0F2FE 100%);
+  background: #FFFFFF !important;
 }
 .light-mode .auth-page::before {
   background-image: radial-gradient(rgba(37,99,235,0.06) 1px, transparent 1px);
@@ -417,6 +417,9 @@
   box-shadow:
     0 32px 80px rgba(0,0,0,0.12),
     0 0 0 1px rgba(37,99,235,0.08);
+}
+.light-mode .auth-left-panel {
+  background: #FFFFFF url('/asmimg.png') center / contain no-repeat !important;
 }
 .light-mode .auth-left-content {
   background: rgba(255,255,255,0.7);
@@ -434,7 +437,7 @@
 .light-mode .auth-left-stats { border-top-color: rgba(37,99,235,0.1); }
 
 .light-mode .auth-right-panel {
-  background: rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.95) !important;
 }
 .light-mode .auth-right-panel::before {
   background: linear-gradient(90deg, transparent, #2563EB 40%, #6366F1 60%, transparent);
@@ -444,16 +447,17 @@
 .light-mode .auth-subtitle      { color: #64748B; }
 .light-mode .auth-input-group label { color: #64748B; }
 .light-mode .auth-input-group input {
-  background: #F8FAFC;
-  border-color: rgba(37,99,235,0.2);
-  color: #0F172A;
+  background: #F8FAFC !important;
+  border-color: rgba(37,99,235,0.2) !important;
+  color: #0F172A !important;
+  caret-color: #000000 !important;
 }
-.light-mode .auth-input-group input::placeholder { color: #94A3B8; }
+.light-mode .auth-input-group input::placeholder { color: #94A3B8 !important; }
 .light-mode .auth-input-group input:focus {
-  border-color: #2563EB;
-  background: #EFF6FF;
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
-  color: #0F172A;
+  border-color: #2563EB !important;
+  background: #EFF6FF !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+  color: #0F172A !important;
 }
 .light-mode .auth-footer { color: #64748B; }
 .light-mode .auth-btn-submit {

@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════ */
 
 .ov-root {
-  padding: 1.5rem 2rem;
+  padding: 1.5rem 2rem 3rem;
   background: var(--bg-main);
   min-height: 100%;
   display: flex;
@@ -617,9 +617,11 @@
 .light-mode .ov-map-tooltip strong { color: #0F172A; }
 
 /* ── Recent Activities ────────────────────────── */
-.ov-activity-list {
+.ov-activity-list,
+.ov-activities-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 .ov-activity-item {
   display: flex;
@@ -677,6 +679,7 @@
 .ov-domains-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
   overflow-y: auto;
   max-height: 360px;
 }
@@ -800,7 +803,7 @@
 }
 .ov-domains-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.25rem;
   padding: 1.25rem;
 }
@@ -884,6 +887,34 @@
 }
 .light-mode .ov-dc-meta strong {
   color: #334155;
+}
+
+/* Schedule Button (Purple Heart + Heliotrope) */
+.ov-schedule-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: linear-gradient(135deg, #69359C, #DF73FF);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 12px rgba(223, 115, 255, 0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ov-schedule-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(223, 115, 255, 0.4);
+}
+.ov-schedule-btn:active {
+  transform: translateY(0);
 }
 
 /* ══ RESPONSIVE ════════════════════════════════════ */

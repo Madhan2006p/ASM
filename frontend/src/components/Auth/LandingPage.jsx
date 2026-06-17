@@ -1,14 +1,35 @@
 import React from 'react';
-import { Shield, ArrowRight } from 'lucide-react';
+import { Shield, ArrowRight, Sun, Moon } from 'lucide-react';
 import './LandingPage.css';
 
-const LandingPage = ({ onNavigate }) => {
+const LandingPage = ({ onNavigate, theme, setTheme }) => {
+  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
   return (
     <div className="landing-container">
       <nav className="landing-nav">
         <div className="landing-logo">
           <Shield className="landing-logo-icon" size={28} />
           <span className="landing-logo-text">Infotech Sentinel</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button 
+            onClick={toggleTheme} 
+            style={{ 
+              background: 'transparent', 
+              border: '1.5px solid #3B82F6', 
+              borderRadius: '8px',
+              padding: '0.4rem',
+              cursor: 'pointer', 
+              color: 'var(--text-primary)', 
+              display: 'flex', 
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s'
+            }}
+            title="Toggle Theme"
+          >
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
         </div>
       </nav>
 

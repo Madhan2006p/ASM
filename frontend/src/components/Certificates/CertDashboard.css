@@ -114,21 +114,21 @@
 
 /* Score Card */
 .card-dark {
-  background: linear-gradient(160deg, #0E2145 0%, #091525 100%);
+  background: var(--bg-card);
   border-radius: 14px;
-  border: 1px solid rgba(59,130,246,0.2);
+  border: 1px solid var(--border-color);
   padding: 1.5rem;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
 }
 
 .score-title {
-  color: #FFFFFF;
+  color: var(--text-primary);
   font-weight: 700;
   font-size: 1rem;
   margin-bottom: 0.25rem;
 }
 .score-subtitle {
-  color: #94B8D8;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   margin-bottom: 1.5rem;
 }
@@ -160,13 +160,13 @@
 .gauge-text .score-num {
   font-size: 2rem;
   font-weight: 700;
-  color: white;
+  color: var(--text-primary);
 }
 
 .gauge-text .score-lbl {
   font-size: 0.65rem;
   font-weight: 700;
-  color: #CBD5E1;
+  color: var(--text-muted);
   letter-spacing: 0.05em;
 }
 
@@ -181,14 +181,14 @@
   justify-content: space-between;
   align-items: center;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border-color);
 }
 .metric-row:last-child {
   border-bottom: none;
 }
 
 .metric-lbl {
-  color: #C7DEFF;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   display: flex;
   align-items: center;

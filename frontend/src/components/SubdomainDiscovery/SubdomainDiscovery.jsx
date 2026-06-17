@@ -64,6 +64,32 @@ const SubdomainDiscovery = ({ activeScanId, activeTarget, scansList, handleSelec
     catch { return dateStr; }
   };
 
+  const getStats = () => {
+    // New this week (subdomains)
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const newThisWeek = subdomains.filter(s => s.created_at && new Date(s.created_at) > oneWeekAgo).length;
+
+    // Average scan time (from completed scans)
+    const completedScans = scansList.filter(s => s.status === 'completed' && s.created_at && s.updated_at);
+    let avgScanTime = '--';
+    if (completedScans.length > 0) {
+      const totalTime = completedScans.reduce((acc, s) => {
+        return acc + (new Date(s.updated_at).getTime() - new Date(s.created_at).getTime());
+      }, 0);
+      const avgMs = totalTime / completedScans.length;
+      if (avgMs < 60000) {
+        avgScanTime = `${Math.round(avgMs / 1000)}s`;
+      } else {
+        avgScanTime = `${Math.round(avgMs / 60000)}m ${Math.round((avgMs % 60000) / 1000)}s`;
+      }
+    }
+
+    return { newThisWeek: `+${newThisWeek}`, avgScanTime };
+  };
+
+  const dynamicStats = getStats();
+
   return (
     <div className="global-page-container">
       <div className="global-max-width">
@@ -76,8 +102,8 @@ const SubdomainDiscovery = ({ activeScanId, activeTarget, scansList, handleSelec
           stats={[
             { label: 'DISCOVERED ASSETS', value: subdomains.length.toString() },
             { label: 'ACTIVE SCANS', value: scansList.filter(s => s.status === 'running' || s.status === 'pending').length.toString() },
-            { label: 'NEW THIS WEEK', value: '+18' },
-            { label: 'AVG. SCAN TIME', value: '42s' }
+            { label: 'NEW THIS WEEK', value: dynamicStats.newThisWeek },
+            { label: 'AVG. SCAN TIME', value: dynamicStats.avgScanTime }
           ]}
         />
 

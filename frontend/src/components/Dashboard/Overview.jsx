@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import './Overview.css';
 import {
-  AlertTriangle, ExternalLink, Globe, Monitor,
+  AlertTriangle, ExternalLink, Globe, Monitor, MapPin,
   Shield, Maximize2, Zap, Clock, Search, XCircle,
-  Activity, Server, Wifi, ArrowUpRight, CheckCircle2, Lock, RefreshCw, Play, Check
+  Activity, Server, Wifi, ArrowUpRight, CheckCircle2, Lock, RefreshCw, Play, Check, PieChart
 } from 'lucide-react';
 import PageHeaderCard from '../common/PageHeaderCard';
 import ScanSelector from '../common/ScanSelector';
@@ -31,8 +31,250 @@ const ORANGE_WAVE = {
   fill: 'M0,60 C30,55 60,30 90,35 C120,40 150,15 180,20 C210,25 240,45 270,40 C285,37 300,36 300,36 L300,80 L0,80 Z'
 };
 const BLUE_WAVE = {
-  line: 'M0,50 C40,45 70,65 110,50 C150,35 180,55 220,42 C250,32 275,50 300,45',
-  fill: 'M0,50 C40,45 70,65 110,50 C150,35 180,55 220,42 C250,32 275,50 300,45 L300,80 L0,80 Z'
+  line: 'M0,45 C40,40 80,70 120,60 C160,50 200,30 250,45 C280,54 300,50 300,50',
+  fill: 'M0,45 C40,40 80,70 120,60 C160,50 200,30 250,45 C280,54 300,50 300,50 L300,80 L0,80 Z'
+};
+
+const getTechCategoryAndRisk = (techName) => {
+  const nameLower = (techName || '').toLowerCase();
+  let category = 'Database / System';
+  if (['nginx', 'apache', 'iis', 'caddy', 'gunicorn', 'tomcat', 'webserver', 'cloudflare', 'cloudfront', 'fastly', 'cdn'].some(k => nameLower.includes(k))) {
+    category = 'Database / System';
+  } else if (['react', 'angular', 'vue', 'jquery', 'next.js', 'nuxt.js', 'bootstrap', 'semantic'].some(k => nameLower.includes(k))) {
+    category = 'Frontend';
+  } else if (['django', 'flask', 'express', 'laravel', 'php', 'python', 'node.js', 'ruby', 'spring'].some(k => nameLower.includes(k))) {
+    category = 'Backend';
+  } else if (['postgresql', 'mysql', 'mariadb', 'mongodb', 'redis', 'elasticsearch', 'sqlite'].some(k => nameLower.includes(k))) {
+    category = 'Database / System';
+  }
+
+  let risk = 'LOW';
+  if (['jquery', 'apache'].some(k => nameLower.includes(k))) risk = 'HIGH';
+  else if (['nginx', 'mysql', 'tomcat'].some(k => nameLower.includes(k))) risk = 'MEDIUM';
+
+  return { category, risk };
+};
+
+const getPyramidData = (techs) => {
+  const layers = [
+    { risk: 'CRITICAL', label: 'Critical', count: 0 },
+    { risk: 'HIGH', label: 'High', count: 0 },
+    { risk: 'MEDIUM', label: 'Medium', count: 0 },
+    { risk: 'LOW', label: 'Low', count: 0 },
+  ];
+
+  techs.forEach(t => {
+    let risk = 'LOW';
+    const rawName = t.name || '';
+    let version = 'latest';
+    
+    if (rawName.includes('/')) {
+      version = rawName.split('/')[1];
+    }
+
+    if (version === 'latest' || version.toLowerCase() === 'latest') {
+      risk = 'LOW';
+    } else {
+      const nameLower = rawName.toLowerCase();
+      if (['jquery'].some(k => nameLower.includes(k))) risk = 'CRITICAL';
+      else if (['apache'].some(k => nameLower.includes(k))) risk = 'HIGH';
+      else if (['nginx', 'mysql', 'tomcat'].some(k => nameLower.includes(k))) risk = 'MEDIUM';
+      else risk = 'HIGH'; // If it has an outdated version but isn't explicitly mapped, default to High
+    }
+
+    const layer = layers.find(p => p.risk === risk);
+    if (layer) layer.count++;
+  });
+
+  return layers;
+};
+
+const PYRAMID_COLORS = {
+  CRITICAL: { bg: '#F04438', text: '#FFFFFF' },
+  HIGH:     { bg: '#F79009', text: '#FFFFFF' },
+  MEDIUM:   { bg: '#FDB022', text: '#FFFFFF' },
+  LOW:      { bg: '#12B76A', text: '#FFFFFF' }
+};
+
+const PyramidLayer = ({ points, risk, label, count, textY, labelSize, countSize, originY, textFill }) => {
+  const [hover, setHover] = useState(false);
+  const color = PYRAMID_COLORS[risk];
+  const textColor = textFill || color.text;
+
+  return (
+    <g 
+      onMouseEnter={() => setHover(true)} 
+      onMouseLeave={() => setHover(false)}
+      style={{
+        transform: hover ? 'scale(1.05)' : 'scale(1)',
+        transformOrigin: `150px ${originY}px`,
+        transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+      }}
+    >
+      <polygon 
+        points={points} 
+        fill={color.bg}
+        opacity={1} 
+        style={{ transition: 'all 0.3s ease', cursor: 'pointer' }}
+      />
+      <text x="150" y={textY} fill={textColor} fontSize={labelSize} fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none', transition: 'all 0.3s ease', opacity: 1 }}>{label}</text>
+      <text x="150" y={textY + (labelSize * 1.3)} fill={textColor === '#FFFFFF' ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.6)"} fontSize={countSize} textAnchor="middle" style={{ pointerEvents: 'none', transition: 'all 0.3s ease', opacity: 1 }}>{count} vulnerabilities</text>
+    </g>
+  );
+};
+
+const VulnerabilityPieChart = ({ data }) => {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const total = data.reduce((acc, d) => acc + d.value, 0);
+
+  if (total === 0) {
+    return (
+      <div style={{ position: 'relative', width: '220px', height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <style>{`
+          @keyframes drawEmptyPie {
+            from { stroke-dashoffset: 314.16; }
+            to { stroke-dashoffset: 0; }
+          }
+        `}</style>
+        <svg viewBox="-110 -110 220 220" style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)' }}>
+          <circle 
+            cx="0" cy="0" r="50" 
+            fill="transparent" 
+            stroke="rgba(150,150,150,0.1)" 
+            strokeWidth="100"
+            style={{
+              strokeDasharray: '314.16',
+              animation: 'drawEmptyPie 1s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards'
+            }}
+          />
+        </svg>
+        <div style={{ zIndex: 1, color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', maxWidth: '120px' }}>
+          No vulnerabilities found
+        </div>
+      </div>
+    );
+  }
+
+  let currentAngle = -90;
+  const radius = 100;
+
+  return (
+    <div style={{ position: 'relative', width: '220px', height: '220px' }}>
+      <svg viewBox="-110 -110 220 220" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+        {data.map((slice, i) => {
+          if (slice.value === 0) return null;
+          const sliceAngle = (slice.value / total) * 360;
+          
+          if (sliceAngle === 360) {
+            const isHovered = hoveredIndex === i;
+            const scale = isHovered ? 1.05 : 1;
+            return (
+              <g key={i}>
+                <circle
+                  cx="0" cy="0" r={radius}
+                  fill={slice.color}
+                  stroke="var(--bg-card)"
+                  strokeWidth="2"
+                  onMouseEnter={() => setHoveredIndex(i)}
+                  onMouseLeave={() => setHoveredIndex(null)}
+                  style={{
+                    transform: `scale(${scale})`,
+                    transformOrigin: '0 0',
+                    transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                    cursor: 'pointer'
+                  }}
+                />
+                <text x="0" y="0" fill="#fff" fontSize="16" fontWeight="bold" textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: 'none' }}>
+                  <tspan x="0" dy="-0.6em">{slice.label}</tspan>
+                  <tspan x="0" dy="1.2em">{slice.value}</tspan>
+                </text>
+              </g>
+            );
+          }
+
+          const x1 = radius * Math.cos((currentAngle * Math.PI) / 180);
+          const y1 = radius * Math.sin((currentAngle * Math.PI) / 180);
+          const nextAngle = currentAngle + sliceAngle;
+          const x2 = radius * Math.cos((nextAngle * Math.PI) / 180);
+          const y2 = radius * Math.sin((nextAngle * Math.PI) / 180);
+          const largeArcFlag = sliceAngle > 180 ? 1 : 0;
+          
+          const pathData = `M 0 0 L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+
+          const midAngle = currentAngle + sliceAngle / 2;
+          const textX = (radius * 0.55) * Math.cos((midAngle * Math.PI) / 180);
+          const textY = (radius * 0.55) * Math.sin((midAngle * Math.PI) / 180);
+
+          const isHovered = hoveredIndex === i;
+          const scale = isHovered ? 1.05 : 1;
+          const res = (
+            <g key={i}>
+              <path
+                d={pathData}
+                fill={slice.color}
+                stroke="var(--bg-card)"
+                strokeWidth="2"
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+                style={{
+                  transform: `scale(${scale})`,
+                  transformOrigin: '0 0',
+                  transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                  cursor: 'pointer'
+                }}
+              />
+              {sliceAngle > 15 && (
+                <text 
+                  x={textX} 
+                  y={textY} 
+                  fill="#fff" 
+                  fontSize="12" 
+                  fontWeight="bold" 
+                  textAnchor="middle" 
+                  dominantBaseline="central" 
+                  style={{ 
+                    pointerEvents: 'none', 
+                    transform: `scale(${scale})`, 
+                    transformOrigin: '0 0', 
+                    transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)' 
+                  }}
+                >
+                  <tspan x={textX} dy="-0.6em">{slice.label}</tspan>
+                  <tspan x={textX} dy="1.2em">{slice.value}</tspan>
+                </text>
+              )}
+            </g>
+          );
+          currentAngle = nextAngle;
+          return res;
+        })}
+      </svg>
+      {hoveredIndex !== null && data[hoveredIndex].value > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(0,0,0,0.85)',
+          color: 'white',
+          padding: '0.4rem 0.8rem',
+          borderRadius: '6px',
+          pointerEvents: 'none',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          zIndex: 10,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem'
+        }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: data[hoveredIndex].color }} />
+          {data[hoveredIndex].label} vulnerabilities: {data[hoveredIndex].value}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const RiskBar = ({ label, value, max, color, gradient, delay = 0 }) => {
@@ -111,6 +353,7 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
   const [subdomains, setSubdomains] = useState([]);
   const [vulns, setVulns] = useState([]);
   const [techs, setTechs] = useState([]);
+  const [serverLocation, setServerLocation] = useState('Fetching...');
   const [monitoredDomains, setMonitoredDomains] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -121,9 +364,24 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleSuccess, setScheduleSuccess] = useState(false);
 
-  // Sync domain with activeTarget
+  // Sync domain with activeTarget and fetch its server location
   useEffect(() => {
-    if (activeTarget) setScanDomain(activeTarget);
+    if (activeTarget) {
+      setScanDomain(activeTarget);
+      setServerLocation('Fetching...');
+      fetch(`https://ipwhois.app/json/${activeTarget}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) {
+            setServerLocation(data.country);
+          } else {
+            setServerLocation('Unknown');
+          }
+        })
+        .catch(() => setServerLocation('Unknown'));
+    } else {
+      setServerLocation('Unknown');
+    }
   }, [activeTarget]);
   const handleQuickScan = async (domainTarget) => {
     const target = (typeof domainTarget === 'string' ? domainTarget : scanDomain).trim();
@@ -293,6 +551,7 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
   };
 
   const safeScansList = Array.isArray(scansList) ? scansList : (scansList?.results || []);
+  const hasActiveScan = !!activeScanId;
 
   // Group vulnerabilities by severity
   const riskCounts = { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
@@ -362,10 +621,21 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
   };
 
   const getGlobalRiskLabel = () => {
+    if (!hasActiveScan) return '--';
     const score = getGlobalScore();
     if (score >= 85) return 'Low';
     if (score >= 60) return 'Medium';
     return 'High';
+  };
+
+  const getGradeInfo = () => {
+    if (!hasActiveScan) return { grade: '--', color: 'var(--text-muted)', glow: 'transparent', ring: '#475569' };
+    const score = getGlobalScore();
+    if (score >= 90) return { grade: 'A', color: '#10B981', glow: 'rgba(16,185,129,0.4)',  ring: '#10B981' };
+    if (score >= 80) return { grade: 'B', color: '#34D399', glow: 'rgba(52,211,153,0.4)',  ring: '#34D399' };
+    if (score >= 70) return { grade: 'C', color: '#F59E0B', glow: 'rgba(245,158,11,0.4)', ring: '#F59E0B' };
+    if (score >= 60) return { grade: 'D', color: '#F97316', glow: 'rgba(249,115,22,0.4)', ring: '#F97316' };
+    return           { grade: 'F', color: '#EF4444', glow: 'rgba(239,68,68,0.4)',  ring: '#EF4444' };
   };
 
   return (
@@ -419,18 +689,26 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
               </div>
             </div>
 
-            {/* Vulnerabilities */}
+            {/* Server Location */}
             <div className="ov-metric-card ov-card-blue ov-clickable"
-              onClick={() => navigate('Vulnerabilities')}
-              title="Go to Vulnerabilities">
+              title="Server Location">
               <div className="ov-metric-top">
                 <div>
-                  <div className="ov-metric-num ov-blue">{vulns.length}</div>
-                  <div className="ov-metric-lbl">VULNERABILITIES</div>
+                  <div className="ov-metric-num ov-blue" style={{ 
+                    fontSize: serverLocation && serverLocation !== 'Unknown' && serverLocation !== 'Fetching...' && serverLocation.length > 10 ? '1.2rem' : '1.8rem', 
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    maxWidth: '160px',
+                    fontWeight: (serverLocation === 'Unknown' || serverLocation === 'Fetching...') ? '400' : 'bold'
+                  }}>
+                    {serverLocation !== 'Unknown' && serverLocation !== 'Fetching...' ? serverLocation : '--'}
+                  </div>
+                  <div className="ov-metric-lbl">SERVER LOCATION</div>
                 </div>
-                <div className="ov-card-arrow"><ArrowUpRight size={14}/></div>
+                <div className="ov-card-arrow"><MapPin size={14} color="#3B82F6" style={{ opacity: 0.5 }}/></div>
               </div>
-              <div className="ov-metric-trend ov-trend-down">{riskCounts.CRITICAL + riskCounts.HIGH} critical/high</div>
+              <div className="ov-metric-trend" style={{ color: 'var(--text-secondary)' }}>Domain: {activeTarget || '--'}</div>
               <div className="ov-wave-wrap">
                 <WaveChart color="#3B82F6" points={BLUE_WAVE} />
               </div>
@@ -450,21 +728,35 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
             <div className="ov-metric-card ov-card-center ov-card-green ov-clickable"
               onClick={() => navigate('SSL Certificates')}
               title="Go to SSL Certificates">
-              <div className="ov-status-icon ov-icon-green"><Shield size={20} /></div>
-              <div className="ov-score-num">{getGlobalScore()}</div>
-              <div className="ov-metric-lbl">SECURITY SCORE</div>
-              <svg viewBox="0 0 64 64" width="52" height="52" className="ov-score-ring">
-                <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(34,197,94,0.12)" strokeWidth="5" />
-                <circle cx="32" cy="32" r="26" fill="none" stroke="#22C55E" strokeWidth="5"
-                  strokeDasharray={`${2*Math.PI*26*(getGlobalScore()/100)} ${2*Math.PI*26*(1 - getGlobalScore()/100)}`}
-                  strokeDashoffset={2*Math.PI*26*0.25} strokeLinecap="round" />
-              </svg>
+              {(() => {
+                const { grade, color, glow } = getGradeInfo();
+                const score = getGlobalScore();
+                return (
+                  <>
+                    <div style={{
+                      fontSize: '2.6rem', fontWeight: 900, lineHeight: 1, color: color,
+                      letterSpacing: '-0.03em', textShadow: hasActiveScan ? `0 0 18px ${glow}` : 'none',
+                      transition: 'color 0.4s, text-shadow 0.4s'
+                    }}>
+                      {grade}
+                    </div>
+                    <div style={{
+                      fontSize: '0.9rem', fontWeight: 700, color: color, letterSpacing: '0.02em',
+                      opacity: 0.85, lineHeight: 1, marginTop: '0.15rem'
+                    }}>
+                      {hasActiveScan ? `${score}/100` : '--'}
+                    </div>
+                    <div className="ov-metric-lbl" style={{ marginTop: '0.25rem' }}>SECURITY SCORE</div>
+                  </>
+                );
+              })()}
+              <div className="ov-card-arrow-center"><ArrowUpRight size={13}/></div>
             </div>
 
           </div>
 
           {/* ═══ ROW 1.5 — User Assigned Domains ══════ */}
-          <div className="ov-row">
+          <div className="ov-row ov-row-split">
             <div className="ov-panel ov-assigned-domains-panel">
               <div className="ov-panel-hdr">
                 <div className="ov-panel-title">
@@ -491,11 +783,11 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
                       <div style={{ position: 'relative', flex: 1 }}>
                         <button 
+                          className="ov-schedule-btn"
                           onClick={() => {
                             setScanDomain(d.domain);
                             setShowScheduleMenu(showScheduleMenu === d.domain ? null : d.domain);
                           }}
-                          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.4rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                         >
                           <Clock size={12} /> Schedule
                         </button>
@@ -526,8 +818,25 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
                   </div>
                 ))}
                 {monitoredDomains.length === 0 && (
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', padding: '1rem 0' }}>No domains assigned. Please contact the admin.</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px', gridColumn: '1 / -1', textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No domains assigned. Please contact the admin.</div>
                 )}
+              </div>
+            </div>
+
+            <div className="ov-panel ov-panel-flex">
+              <div className="ov-panel-hdr">
+                <div className="ov-panel-title">
+                  <PieChart size={14} color="#EF4444"/>
+                  VULNERABILITY DISTRIBUTION
+                </div>
+              </div>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                <VulnerabilityPieChart data={[
+                  { label: 'Critical', value: riskCounts.CRITICAL, color: '#EF4444' },
+                  { label: 'High', value: riskCounts.HIGH, color: '#F97316' },
+                  { label: 'Medium', value: riskCounts.MEDIUM, color: '#F59E0B' },
+                  { label: 'Low', value: riskCounts.LOW, color: '#22C55E' }
+                ]} />
               </div>
             </div>
           </div>
@@ -589,25 +898,21 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
                 <div className="ov-panel-title"><Monitor size={14} color="#3B82F6"/>RECENT TECHNOLOGIES</div>
                 <button className="ov-icon-btn" onClick={() => navigate('Technologies')}><ExternalLink size={13}/></button>
               </div>
-              <table className="ov-table">
-                <thead><tr>
-                  <th>Component</th>
-                  <th style={{width:'200px'}}>Detected Scope</th>
-                </tr></thead>
-                <tbody>
-                  {techs.slice(0, 6).map((t, i) => (
-                    <tr key={i}>
-                      <td><span className="ov-link">{t.name}</span></td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.domain}</td>
-                    </tr>
-                  ))}
-                  {techs.length === 0 && (
-                    <tr>
-                      <td colSpan="2" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No technologies fingerprinted yet</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '1rem', minHeight: '340px' }}>
+                  <svg viewBox="0 0 300 250" style={{ width: '100%', height: '100%', maxHeight: '350px', display: 'block', margin: '0 auto', filter: 'drop-shadow(0 10px 15px rgba(0,0,0,0.15))' }}>
+                    {(() => {
+                      const pData = getPyramidData(techs);
+                      return (
+                        <g>
+                          <PyramidLayer points="150,5 103.1,80 196.9,80" risk={pData[0].risk} label={pData[0].label} count={pData[0].count} textY={43} labelSize={9} countSize={7} originY={43} />
+                          <PyramidLayer points="100.6,84 199.4,84 231.2,135 68.8,135" risk={pData[1].risk} label={pData[1].label} count={pData[1].count} textY={106} labelSize={10} countSize={8} originY={110} />
+                          <PyramidLayer points="66.3,139 233.8,139 265.6,190 34.4,190" risk={pData[2].risk} label={pData[2].label} count={pData[2].count} textY={162} labelSize={11} countSize={8} originY={165} />
+                          <PyramidLayer points="31.9,194 268.1,194 300,245 0,245" risk={pData[3].risk} label={pData[3].label} count={pData[3].count} textY={217} labelSize={12} countSize={9} originY={220} />
+                        </g>
+                      );
+                    })()}
+                  </svg>
+              </div>
             </div>
 
             {/* Interactive World Map */}
@@ -673,7 +978,7 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
                   </div>
                 ))}
                 {RECENT_ACTIVITIES.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No recent activities found.</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: '120px', textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No recent activities found.</div>
                 )}
               </div>
             </div>
@@ -708,7 +1013,7 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
                   );
                 })}
                 {SCANNED_DOMAINS.length === 0 && (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No domains scanned.</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: '120px', textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No domains scanned.</div>
                 )}
               </div>
             </div>
@@ -716,6 +1021,9 @@ const Overview = ({ setActivePage, activeScanId, activeTarget, scansList = [], h
           </div>
         </>
       )}
+
+      {/* Spacer to guarantee bottom padding renders correctly */}
+      <div style={{ height: '3rem', flexShrink: 0, width: '100%' }} />
 
     </div>
   );

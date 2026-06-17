@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Shield, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Shield, Lock, Eye, EyeOff, CheckCircle, ArrowLeft, Sun, Moon } from 'lucide-react';
 import './Auth.css';
 import { api } from '../../utils/api';
 
-const Login = ({ onLogin, onNavigate }) => {
+const Login = ({ onLogin, onNavigate, theme, setTheme }) => {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
@@ -77,6 +77,41 @@ const Login = ({ onLogin, onNavigate }) => {
 
         {/* Right form panel */}
         <div className="auth-right-panel">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div 
+              onClick={() => onNavigate('landing')}
+              style={{ 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                cursor: 'pointer', 
+                color: 'var(--text-primary, #fff)', 
+              }}
+              title="Back to Home"
+            >
+              <ArrowLeft size={18} />
+            </div>
+            
+            <button 
+              type="button"
+              onClick={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')} 
+              style={{ 
+                background: 'transparent', 
+                border: '1.5px solid #3B82F6', 
+                borderRadius: '8px',
+                padding: '0.4rem',
+                cursor: 'pointer', 
+                color: 'var(--text-primary, #fff)', 
+                display: 'flex', 
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+              title="Toggle Theme"
+            >
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+          </div>
+
           <div className="auth-header-brand">
             <Shield size={22} color="#10B981" />
             Infotech Sentinel

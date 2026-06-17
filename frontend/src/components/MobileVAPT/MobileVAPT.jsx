@@ -22,6 +22,7 @@ const MobileVAPT = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [activePollScanId, setActivePollScanId] = useState(null);
+  const [activeTrend, setActiveTrend] = useState('both');
 
   // Detail Modal State
   const [selectedScan, setSelectedScan] = useState(null);
@@ -122,19 +123,19 @@ const MobileVAPT = () => {
   };
 
   const takedownData = [
-    { name: 'Jan', detected: 12, takedowns: 8 },
-    { name: 'Feb', detected: 18, takedowns: 15 },
-    { name: 'Mar', detected: 14, takedowns: 12 },
-    { name: 'Apr', detected: 25, takedowns: 20 },
-    { name: 'May', detected: 22, takedowns: 24 },
-    { name: 'Jun', detected: 33, takedowns: 18 },
-    { name: 'Jul', detected: 42, takedowns: 36 },
+    { name: 'Jan', detected: 0, takedowns: 0 },
+    { name: 'Feb', detected: 0, takedowns: 0 },
+    { name: 'Mar', detected: 0, takedowns: 0 },
+    { name: 'Apr', detected: 0, takedowns: 0 },
+    { name: 'May', detected: 0, takedowns: 0 },
+    { name: 'Jun', detected: 0, takedowns: 0 },
+    { name: 'Jul', detected: 0, takedowns: 0 },
   ];
 
   const platformData = [
-    { name: 'Google Play', value: 65, color: '#10B981' },
-    { name: 'Apple App Store', value: 15, color: '#3B82F6' },
-    { name: 'Third-Party Stores', value: 20, color: '#F59E0B' },
+    { name: 'Google Play', value: 0, color: '#10B981' },
+    { name: 'Apple App Store', value: 0, color: '#3B82F6' },
+    { name: 'Third-Party Stores', value: 0, color: '#F59E0B' },
   ];
 
   const headerActions = (
@@ -231,9 +232,27 @@ const MobileVAPT = () => {
         
         {/* Left Card: Area Chart */}
         <div className="mv-panel" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 0.25rem 0' }}>Detection & Takedown Trends</h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>Fake apps discovered vs. successfully removed (2024)</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', alignItems: 'flex-start' }}>
+            <div>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 0.25rem 0' }}>Detection & Takedown Trends</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>Fake apps discovered vs. successfully removed (2024)</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-end' }}>
+              <div 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', opacity: activeTrend === 'both' || activeTrend === 'detected' ? 1 : 0.4, transition: 'opacity 0.2s' }}
+                onClick={() => setActiveTrend(activeTrend === 'detected' ? 'both' : 'detected')}
+              >
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#EF4444' }}></div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fake Apps</span>
+              </div>
+              <div 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', opacity: activeTrend === 'both' || activeTrend === 'takedowns' ? 1 : 0.4, transition: 'opacity 0.2s' }}
+                onClick={() => setActiveTrend(activeTrend === 'takedowns' ? 'both' : 'takedowns')}
+              >
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981' }}></div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Removed Apps</span>
+              </div>
+            </div>
           </div>
           <div style={{ height: '300px', width: '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -255,8 +274,12 @@ const MobileVAPT = () => {
                   contentStyle={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)', borderRadius: '8px' }}
                   itemStyle={{ fontSize: '0.85rem', fontWeight: '600' }}
                 />
-                <Area type="monotone" dataKey="detected" name="Detected Fakes" stroke="#EF4444" strokeWidth={2} fillOpacity={1} fill="url(#colorDetected)" />
-                <Area type="monotone" dataKey="takedowns" name="Total Takedowns" stroke="#10B981" strokeWidth={2} fillOpacity={1} fill="url(#colorTakedown)" />
+                {(activeTrend === 'both' || activeTrend === 'detected') && (
+                  <Area type="monotone" dataKey="detected" name="Detected Fakes" stroke="#EF4444" strokeWidth={2} fillOpacity={1} fill="url(#colorDetected)" />
+                )}
+                {(activeTrend === 'both' || activeTrend === 'takedowns') && (
+                  <Area type="monotone" dataKey="takedowns" name="Total Takedowns" stroke="#10B981" strokeWidth={2} fillOpacity={1} fill="url(#colorTakedown)" />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -272,7 +295,7 @@ const MobileVAPT = () => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={platformData}
+                  data={platformData.every(d => d.value === 0) ? [{ value: 1, color: 'rgba(150,150,150,0.1)' }] : platformData}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}
@@ -280,8 +303,9 @@ const MobileVAPT = () => {
                   paddingAngle={5}
                   dataKey="value"
                   stroke="none"
+                  isAnimationActive={false}
                 >
-                  {platformData.map((entry, index) => (
+                  {(platformData.every(d => d.value === 0) ? [{ value: 1, color: 'rgba(150,150,150,0.1)' }] : platformData).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -336,8 +360,16 @@ const MobileVAPT = () => {
                   <td style={{ padding: '1rem 1.5rem', fontWeight: 'bold' }}>
                     {scan.app_name || scan.file_name}
                   </td>
-                  <td style={{ padding: '1rem 1.5rem', textTransform: 'capitalize' }}>
-                    {scan.source === 'android' ? '🤖 Android' : '🍏 iOS'}
+                  <td style={{ padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', height: '100%' }}>
+                    {scan.source === 'android' ? (
+                      <svg viewBox="0 0 24 24" width="22" height="22" fill="#3DDC84">
+                        <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4483-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993.0004.5511-.4482.9997-.9993.9997zm-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997zm11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.022 3.503C15.5902 8.244 13.8533 7.8512 12 7.8512s-3.5902.3928-5.1371 1.0985l-2.022-3.503a.416.416 0 00-.5676-.1521.416.416 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396z"/>
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 384 512" width="20" height="22" fill="var(--text-primary)">
+                        <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
+                      </svg>
+                    )}
                   </td>
                   <td style={{ padding: '1rem 1.5rem', fontFamily: 'monospace' }}>
                     {scan.version_name || '—'}
@@ -627,6 +659,8 @@ const MobileVAPT = () => {
         </div>
       )}
 
+      {/* Spacer to guarantee bottom padding renders correctly */}
+      <div style={{ height: '3rem', flexShrink: 0, width: '100%' }} />
     </div>
   );
 };
